@@ -19,7 +19,6 @@ MTBS_BSmosaics <- "/Users/anjumgujral/Documents/repos/fire-severity-traits/data/
 # Initialize an empty list to store rasters
 rasters_list <- list()
 
-
 # Loop over the years from 1984 to 2021
 for (year in 1984:2021) {
   year_folder <- file.path(MTBS_BSmosaics, as.character(year))
@@ -49,7 +48,6 @@ plot_points <- st_transform(plot_points, crs(raster_layer))
 
 # Extract raster values at the plot points
 extracted_values <- terra::extract(raster_layer, plot_points)
-#extracted_values[[1]] <- terra::extract(raster_layer, plot_points)
 
 # Loop over all rasters in the rasters_list and extract values
 for (raster_file in names(rasters_list)) {
@@ -69,8 +67,10 @@ names(extracted_df) <- new_names
 # Check how many non-NA values there are
 count_nonNAs <- function(x) {return(sum(!is.na(x)))}
 nonNAs_by_year <- apply(extracted_df, 2, count_nonNAs)
+
 # plot number of nonNAs_by_year, using ggplot, and rotating the x labels to vertical
 nonNAs_df <- data.frame(year = names(nonNAs_by_year), nonNAs = nonNAs_by_year)
+
 ggplot(nonNAs_df, aes(x = year, y = nonNAs)) +
   geom_bar(stat = "identity") +
   theme(axis.text.x = element_text(angle = 90, hjust = 1)) +
