@@ -7,7 +7,6 @@ library(tidyverse)
 library(here)
 
 # Load points for fuzzed FIA plots
-
 FIA <- read.csv("./data/FIA/CA_PLOT.csv")
 
 # Convert the FIA locations to an st point object
@@ -111,8 +110,17 @@ for (year in colnames(severity_categories)[-ncol(severity_categories)]) {
   summary_table[summary_table$Year == year, 2:4] <- table(severity_categories[[year]])
 }
 
-# Print the summary table
-print(summary_table)
+# pull REMPER and INVYR from FIA to calculate remeasurement period and number of resamples
+census_intervals <- FIA[, c("PLOT", "REMPER", "INVYR", "MEASYEAR", "LAT", "LON")]
+
+# Group by PLOT and summarize the count of samples and the years sampled
+resamples <- census_intervals %>%
+  group_by(PLOT) %>%
+  summarise(
+    sample_num = n(),  # Number of times each plot was sampled
+    sample_years = paste(unique(INVYR), collapse = ", ")  # List of unique sampled years
+  )
+
 
 
 
