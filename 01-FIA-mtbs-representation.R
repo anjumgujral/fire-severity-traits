@@ -73,3 +73,50 @@ ggplot(nonNAs_df, aes(x = year, y = nonNAs)) +
   theme(axis.text.x = element_text(angle = 90, hjust = 1)) +
   labs(title = "Number of non-NA values by year", x = "Year", y = "Number of non-NA values")
 
+
+# Remove rows with NA values across all columns of the extracted data (except for the ID column)
+# Filter rows where at least one value in the fire severity columns is not NA
+fire_severity_values <- extracted_values[!apply(extracted_values[, -1], 1, function(x) all(is.na(x))), ]
+
+
+# write a function to categorize severity
+categorize_severity <- function(severity) {
+  if (is.na(severity)) {
+    return(NA)  # Leave as NA if the severity is NA
+  }
+  if (severity <= 1) {
+    return("Low")
+  } else if (severity <= 2) {
+    return("Moderate")
+  } else {
+    return("High")
+  }
+}
+
+# Apply the categorize_severity function to all severity columns (from the 2nd column onwards)
+severity_categories <- apply(fire_severity_values[, -1], 2, function(x) sapply(x, categorize_severity))
+
+# Convert the result to a dataframe
+severity_categories <- as.data.frame(severity_categories)
+
+# Add the ID column back to the dataframe
+severity_categories$ID <- fire_severity_values$ID
+
+# Create a summary table with counts of each severity category per year
+summary_table <- data.frame(Year = colnames(severity_categories)[-ncol(severity_categories)],
+                            Low = NA, Moderate = NA, High = NA)
+
+# Loop through each year to count the categories
+for (year in colnames(severity_categories)[-ncol(severity_categories)]) {
+  summary_table[summary_table$Year == year, 2:4] <- table(severity_categories[[year]])
+}
+
+# Print the summary table
+print(summary_table)
+
+
+
+
+
+
+
