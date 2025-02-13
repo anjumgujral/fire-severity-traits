@@ -9,8 +9,20 @@ library(here)
 # Load points for fuzzed FIA plots
 FIA <- read.csv("./data/FIA/CA_PLOT.csv")
 
+# Load condition codes for FIA plots
+condition_codes <- read.csv("./data/FIA/CA_COND.csv")
+
+# extract just mixed-conifer forest type
+forest_type_371 <- condition_codes %>%
+  filter(FORTYPCD == 371)
+
+forest_type_371 <- forest_type_371[, c("CN", "PLT_CN", "PLOT", "FORTYPCD")]
+
+# merge plot level data with forest condition codes
+FIA_371 <- merge(forest_type_371, FIA, by = "CN", all.x = TRUE)
+
 # Convert the FIA locations to an st point object
-plot_points <- FIA[, c("LAT", "LON")]
+plot_points <- FIA_371[, c("LAT", "LON")]
 plot_points <- na.omit(plot_points)
 plot_points <- st_as_sf(plot_points, coords = c("LON", "LAT"), crs = 4326)
 
@@ -70,7 +82,8 @@ nonNAs_df <- data.frame(year = names(nonNAs_by_year), nonNAs = nonNAs_by_year)
 ggplot(nonNAs_df, aes(x = year, y = nonNAs)) +
   geom_bar(stat = "identity") +
   theme(axis.text.x = element_text(angle = 90, hjust = 1)) +
-  labs(title = "Number of non-NA values by year", x = "Year", y = "Number of non-NA values")
+  labs(title = "Number of FIA plots in CA burned by year", x = "Year", y = "Number of FIA plots") +
+  scale_y_continuous(breaks = seq(0, max(nonNAs_df$nonNAs), by = 100))
 
 
 # Remove rows with NA values across all columns of the extracted data (except for the ID column)
