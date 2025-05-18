@@ -12,6 +12,11 @@ FIA <- read.csv("./data/FIA/CA_PLOT.csv")
 # Load condition codes for FIA plots
 condition_codes <- read.csv("./data/FIA/CA_COND.csv")
 
+table(condition_codes$FORTYPCD)
+condition_codes_table <- as.data.frame(table(condition_codes$FORTYPCD))
+
+condition_codes$DSTRBCD1
+
 # extract just mixed-conifer forest type
 forest_type_371 <- condition_codes %>%
   filter(FORTYPCD == 371)
@@ -82,8 +87,8 @@ nonNAs_df <- data.frame(year = names(nonNAs_by_year), nonNAs = nonNAs_by_year)
 ggplot(nonNAs_df, aes(x = year, y = nonNAs)) +
   geom_bar(stat = "identity") +
   theme(axis.text.x = element_text(angle = 90, hjust = 1)) +
-  labs(title = "Number of FIA plots in CA burned by year", x = "Year", y = "Number of FIA plots") +
-  scale_y_continuous(breaks = seq(0, max(nonNAs_df$nonNAs), by = 100))
+  labs(title = "Number of FIA plots in burned by year - mixed-conifer", x = "Year", y = "Number of FIA plots") +
+  scale_y_continuous(breaks = seq(0, max(nonNAs_df$nonNAs)))
 
 
 # Remove rows with NA values across all columns of the extracted data (except for the ID column)
