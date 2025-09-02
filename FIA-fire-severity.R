@@ -99,6 +99,7 @@ forest_type_combined %>%
 
 
 # take the PLT_CN codes from forest_type_combined and filter CA_TREE
+# forest_type_combined is our key dataframe with unique PLT_CN and their disturbance codes
 CA_TREE_fire_only <- CA_TREE %>%
   filter(PLT_CN %in% forest_type_combined$PLT_CN)
 #467 plots burned in mixed conifer forests
@@ -140,6 +141,9 @@ UT_fire_only <- UT_cond %>%
 WY_fire_only <- WY_cond %>%
   filter(if_any(c(DSTRBCD1, DSTRBCD2, DSTRBCD3), ~ .x %in% c(30, 31, 32)))
 
+NV_fire_only <- NV_cond %>%
+  filter(if_any(c(DSTRBCD1, DSTRBCD2, DSTRBCD3), ~ .x %in% c(30, 31, 32)))
+
 # now filter for all related forest types (see above in CA section for full list)
 WA_forest_type_combined <- WA_fire_only %>%
   filter(FORTYPCD %in% c(371, 201, 221, 222, 224, 225, 261, 922))
@@ -162,9 +166,12 @@ UT_forest_type_combined <- UT_fire_only %>%
 WY_forest_type_combined <- WY_fire_only %>%
   filter(FORTYPCD %in% c(371, 201, 221, 222, 224, 225, 261, 922))
 
+NV_forest_type_combined <- NV_fire_only %>%
+  filter(FORTYPCD %in% c(371, 201, 221, 222, 224, 225, 261, 922))
 
-sum(WA_forest_type_combined$DSTRBCD1 == 31, na.rm = TRUE)
-sum(WA_forest_type_combined$DSTRBCD1 == 32, na.rm = TRUE)
+
+sum(NV_forest_type_combined$DSTRBCD1 == 31, na.rm = TRUE)
+sum(NV_forest_type_combined$DSTRBCD1 == 32, na.rm = TRUE)
 
 # now lets aggregate a species list for each state --- bleh!
 
@@ -184,6 +191,12 @@ MT_TREE_fire_only <- MT_TREE %>%
 CO_TREE_fire_only <- CO_TREE %>%
   filter(PLT_CN %in% CO_forest_type_combined$PLT_CN)
 
+NV_TREE_fire_only <- NV_TREE %>%
+  filter(PLT_CN %in% NV_forest_type_combined$PLT_CN)
+
+UT_TREE_fire_only <- UT_TREE %>%
+  filter(PLT_CN %in% UT_forest_type_combined$PLT_CN)
+
 # attach SCIENTIFIC_NAME from REF_SPECIES to SPCD in CA_TREE_fire_only_spp_ID
 WA_TREE_fire_only_spp_ID <- WA_TREE_fire_only %>%
   left_join(REF_SPECIES %>% select(SPCD, SCIENTIFIC_NAME), by = "SPCD")
@@ -200,6 +213,12 @@ MT_TREE_fire_only_spp_ID <- MT_TREE_fire_only %>%
 CO_TREE_fire_only_spp_ID <- CO_TREE_fire_only %>%
   left_join(REF_SPECIES %>% select(SPCD, SCIENTIFIC_NAME), by = "SPCD")
 
+NV_TREE_fire_only_spp_ID <- NV_TREE_fire_only %>%
+  left_join(REF_SPECIES %>% select(SPCD, SCIENTIFIC_NAME), by = "SPCD")
+
+UT_TREE_fire_only_spp_ID <- UT_TREE_fire_only %>%
+  left_join(REF_SPECIES %>% select(SPCD, SCIENTIFIC_NAME), by = "SPCD")
+
 # create a list of tree species in fire only plots
 WA_TREE_fire_only_spp_list <- unique(WA_TREE_fire_only_spp_ID$SCIENTIFIC_NAME)
 
@@ -211,6 +230,10 @@ MT_TREE_fire_only_spp_list <- unique(MT_TREE_fire_only_spp_ID$SCIENTIFIC_NAME)
 
 CO_TREE_fire_only_spp_list <- unique(CO_TREE_fire_only_spp_ID$SCIENTIFIC_NAME)
 
+NV_TREE_fire_only_spp_list <- unique(NV_TREE_fire_only_spp_ID$SCIENTIFIC_NAME)
+
+UT_TREE_fire_only_spp_list <- unique(UT_TREE_fire_only_spp_ID$SCIENTIFIC_NAME)
+
 # can we now take the species lists for each state and find the intersection?
 #(i.e. we want a list of total unique species across states)
 
@@ -221,8 +244,281 @@ total_unique_species <- unique(c(
   OR_TREE_fire_only_spp_list,
   ID_TREE_fire_only_spp_list,
   MT_TREE_fire_only_spp_list,
-  CO_TREE_fire_only_spp_list
+  CO_TREE_fire_only_spp_list,
+  NV_TREE_fire_only_spp_list,
+  UT_TREE_fire_only_spp_list
 ))
+
+
+# try plotting locations on a map of the US
+# color code by burn severity to see the spatial distribution of high and low severity
+
+#extract plot locations from CA_PLOT or 'CA' for the PLT_CN's on CA_fire_only
+
+CA_burned_plot_coordinates <- CA_TREE_fire_only %>%
+  left_join(
+    CA %>% select(CN, LAT, LON),
+    by = c("PLT_CN" = "CN")
+  )
+
+library(sf)
+library(rnaturalearth)
+library(rnaturalearthdata)
+
+# Convert to sf object using LAT and LON columns
+CA_burned_sf <- st_as_sf(
+  CA_burned_plot_coordinates,
+  coords = c("LON", "LAT"),  # Order matters: (lon, lat)
+  crs = 4326  # WGS84 coordinate system
+)
+
+# Get US states shapefile
+usa_shapefile <- ne_states(country = "United States of America", returnclass = "sf")
+
+# Filter for western states
+western_states <- usa_shapefile %>%
+  filter(name %in% c(
+    "California", "Oregon", "Washington", "Nevada", "Idaho", "Utah",
+    "Arizona", "New Mexico", "Montana", "Wyoming", "Colorado"
+  ))
+
+
+# Join disturbance code into your plots dataframe
+CA_burned_plot_coordinates_DSTRBCD1 <- CA_burned_plot_coordinates %>%
+  left_join(
+    forest_type_combined %>% select(PLT_CN, DSTRBCD1),
+    by = "PLT_CN"
+  )
+
+# Convert to sf with disturbance code included
+CA_burned_sf <- st_as_sf(
+  CA_burned_plot_coordinates_DSTRBCD1,
+  coords = c("LON", "LAT"),
+  crs = 4326
+)
+
+ggplot() +
+  geom_sf(data = western_states, fill = "gray95", color = "black") +
+  geom_sf(
+    data = CA_burned_sf %>% filter(DSTRBCD1 %in% c(31, 32)),
+    aes(color = factor(DSTRBCD1)),
+    size = 1, alpha = 0.8
+  ) +
+  scale_color_manual(
+    values = c("31" = "orange", "32" = "red"),
+    labels = c("31" = "Disturbance 31", "32" = "Disturbance 32"),
+    name = "Disturbance Code"
+  ) +
+  coord_sf(xlim = c(-125, -100), ylim = c(30, 45)) +
+  theme_minimal() +
+  labs(
+    title = "Burned plots in low-moderate and high severity",
+    x = "Longitude",
+    y = "Latitude"
+  )
+
+# lets add other states now
+
+# 1. Join coordinates from the state-level plot table
+OR_burned_plot_coordinates <- OR_TREE_fire_only %>%
+  left_join(
+    OR %>% select(CN, LAT, LON),
+    by = c("PLT_CN" = "CN")
+  )
+
+# 2. Join in the disturbance code from forest_type_combined
+OR_burned_plot_coordinates_DSTRBCD1 <- OR_burned_plot_coordinates %>%
+  left_join(
+    OR_forest_type_combined %>% select(PLT_CN, DSTRBCD1),
+    by = "PLT_CN"
+  )
+
+# 3. Convert to sf object with disturbance info
+OR_burned_sf <- st_as_sf(
+  OR_burned_plot_coordinates_DSTRBCD1,
+  coords = c("LON", "LAT"),
+  crs = 4326
+)
+
+
+# 1. Join coordinates from the state-level plot table
+WA_burned_plot_coordinates <- WA_TREE_fire_only %>%
+  left_join(
+    WA %>% select(CN, LAT, LON),
+    by = c("PLT_CN" = "CN")
+  )
+
+# 2. Join in the disturbance code from forest_type_combined
+WA_burned_plot_coordinates_DSTRBCD1 <- WA_burned_plot_coordinates %>%
+  left_join(
+    WA_forest_type_combined %>% select(PLT_CN, DSTRBCD1),
+    by = "PLT_CN"
+  )
+
+# 3. Convert to sf object with disturbance info
+WA_burned_sf <- st_as_sf(
+  WA_burned_plot_coordinates_DSTRBCD1,
+  coords = c("LON", "LAT"),
+  crs = 4326
+)
+
+# 1. Join coordinates from the state-level plot table
+ID_burned_plot_coordinates <- ID_TREE_fire_only %>%
+  left_join(
+    ID %>% select(CN, LAT, LON),
+    by = c("PLT_CN" = "CN")
+  )
+
+# 2. Join in the disturbance code from forest_type_combined
+ID_burned_plot_coordinates_DSTRBCD1 <- ID_burned_plot_coordinates %>%
+  left_join(
+    ID_forest_type_combined %>% select(PLT_CN, DSTRBCD1),
+    by = "PLT_CN"
+  )
+
+# 3. Convert to sf object with disturbance info
+ID_burned_sf <- st_as_sf(
+  ID_burned_plot_coordinates_DSTRBCD1,
+  coords = c("LON", "LAT"),
+  crs = 4326
+)
+
+
+# 1. Join coordinates from the state-level plot table
+MT_burned_plot_coordinates <- MT_TREE_fire_only %>%
+  left_join(
+    MT %>% select(CN, LAT, LON),
+    by = c("PLT_CN" = "CN")
+  )
+
+# 2. Join in the disturbance code from forest_type_combined
+MT_burned_plot_coordinates_DSTRBCD1 <- MT_burned_plot_coordinates %>%
+  left_join(
+    MT_forest_type_combined %>% select(PLT_CN, DSTRBCD1),
+    by = "PLT_CN"
+  )
+
+# 3. Convert to sf object with disturbance info
+MT_burned_sf <- st_as_sf(
+  MT_burned_plot_coordinates_DSTRBCD1,
+  coords = c("LON", "LAT"),
+  crs = 4326
+)
+
+# 1. Join coordinates from the state-level plot table
+CO_burned_plot_coordinates <- CO_TREE_fire_only %>%
+  left_join(
+    CO %>% select(CN, LAT, LON),
+    by = c("PLT_CN" = "CN")
+  )
+
+# 2. Join in the disturbance code from forest_type_combined
+CO_burned_plot_coordinates_DSTRBCD1 <- CO_burned_plot_coordinates %>%
+  left_join(
+    CO_forest_type_combined %>% select(PLT_CN, DSTRBCD1),
+    by = "PLT_CN"
+  )
+
+# 3. Convert to sf object with disturbance info
+CO_burned_sf <- st_as_sf(
+  CO_burned_plot_coordinates_DSTRBCD1,
+  coords = c("LON", "LAT"),
+  crs = 4326
+)
+
+# 1. Join coordinates from the state-level plot table
+UT_burned_plot_coordinates <- UT_TREE_fire_only %>%
+  left_join(
+    UT %>% select(CN, LAT, LON),
+    by = c("PLT_CN" = "CN")
+  )
+
+# 2. Join in the disturbance code from forest_type_combined
+UT_burned_plot_coordinates_DSTRBCD1 <- UT_burned_plot_coordinates %>%
+  left_join(
+    UT_forest_type_combined %>% select(PLT_CN, DSTRBCD1),
+    by = "PLT_CN"
+  )
+
+# 3. Convert to sf object with disturbance info
+UT_burned_sf <- st_as_sf(
+  UT_burned_plot_coordinates_DSTRBCD1,
+  coords = c("LON", "LAT"),
+  crs = 4326
+)
+
+
+###### this chunk for NV didnt work, see below instead
+# 1. Join coordinates from the state-level plot table
+NV_burned_plot_coordinates <- NV_TREE_fire_only %>%
+  left_join(
+    NV %>% select(CN, LAT, LON),
+    by = c("PLT_CN" = "CN")
+  )
+
+# 2. Join in the disturbance code from forest_type_combined
+NV_burned_plot_coordinates_DSTRBCD1 <- NV_burned_plot_coordinates %>%
+  left_join(
+    NV_forest_type_combined %>% select(PLT_CN, DSTRBCD1),
+    by = "PLT_CN"
+  )
+
+# 3. Convert to sf object with disturbance info
+NV_burned_sf <- st_as_sf(
+  NV_burned_plot_coordinates_DSTRBCD1,
+  coords = c("LON", "LAT"),
+  crs = 4326
+)
+
+######
+NV_fire_coords <- NV_fire_only %>%
+  left_join(NV %>% select(CN, LAT, LON), by = c("PLT_CN" = "CN"))
+
+NV_fire_sf <- st_as_sf(NV_fire_coords, coords = c("LON", "LAT"), crs = 4326)
+
+
+
+NV_burned_plot_coordinates <- NV_fire_only %>%
+  left_join(NV %>% select(CN, LAT, LON), by = c("PLT_CN" = "CN"))
+
+# Step 3: Convert to sf object
+NV_burned_sf <- st_as_sf(NV_burned_plot_coordinates, coords = c("LON", "LAT"), crs = 4326)
+
+all_burned_sf <- dplyr::bind_rows(
+  CA_burned_sf,
+  OR_burned_sf,
+  WA_burned_sf,
+  ID_burned_sf,
+  MT_burned_sf,
+  CO_burned_sf,
+  UT_burned_sf,
+  NV_burned_sf,
+  # etc.
+)
+
+NV_burned_sf$CREATED_DATE <- as.POSIXct(NV_burned_sf$CREATED_DATE, tz = "UTC")
+NV_burned_sf$MODIFIED_DATE <- as.POSIXct(NV_burned_sf$MODIFIED_DATE, tz = "UTC")
+
+
+ggplot() +
+  geom_sf(data = western_states, fill = "gray95", color = "black") +
+  geom_sf(
+    data = all_burned_sf %>% filter(DSTRBCD1 %in% c(31, 32)),
+    aes(color = factor(DSTRBCD1)),
+    size = 1, alpha = 0.8
+  ) +
+  scale_color_manual(
+    values = c("31" = "orange", "32" = "red"),
+    name = "Disturbance Code"
+  ) +
+  coord_sf(xlim = c(-125, -100), ylim = c(30, 50)) +
+  theme_minimal() +
+  labs(
+    title = "Burned FIA Plots with Disturbance Codes 31 and 32",
+    x = "Longitude",
+    y = "Latitude"
+  )
+
 
 
 #but we want to further filter for plots that have one pre fire survey as well
