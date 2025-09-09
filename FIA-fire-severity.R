@@ -48,12 +48,161 @@ condition_codes <- as.data.frame(condition_codes)
 CA_fire_only <- CA_cond %>%
   filter(if_any(c(DSTRBCD1, DSTRBCD2, DSTRBCD3), ~ .x %in% c(30, 31, 32)))
 
-# actually lets make sure to pull burned plots across all disturbance codes (DSTRBCD2 and DSTRBCD3 for when
-# there are multiple disturbances)
-#CA_fire_only <- CA_cond %>%
-  #filter(DSTRBCD1 %in% c(30, 31, 32) |
-           #DSTRBCD2 %in% c(30, 31, 32) |
-           #DSTRBCD3 %in% c(30, 31, 32))
+
+# we want to also filter for plots that have one pre fire survey
+
+CA_fire_only_yr <- CA_cond %>%
+  filter(DSTRBCD1 %in% c(30, 31, 32), !is.na(DSTRBYR1)) %>%
+  select(PLT_CN, DSTRBYR1, DSTRBCD1, INVYR) %>%
+  distinct()
+
+all_fire_plot_inventories <- CA_cond %>%
+  filter(PLT_CN %in% CA_fire_only_yr$PLT_CN)
+
+all_fire_plot_inventories <- all_fire_plot_inventories %>%
+  left_join(CA_fire_only_yr, by = "PLT_CN")
+
+# Flag pre- and post-fire records
+CA_fire_only_pre_post_fire_surveys <- all_fire_plot_inventories %>%
+  mutate(
+    pre_fire = INVYR.x < DSTRBYR1.x,
+    post_fire = INVYR.x > DSTRBYR1.x
+  )
+
+CA_fire_only_pre_post_fire_surveys2 <- CA_fire_only_pre_post_fire_surveys %>%
+  group_by(PLT_CN) %>%
+  filter(any(pre_fire) & any(post_fire)) %>%
+  ungroup()
+
+
+h1 <- ggplot(
+  data = CA_burned_plot_coordinates_DSTRBCD1 %>%
+    filter(DSTRBYR1 <= 2025) %>%
+    group_by(PLT_CN) %>%
+    slice_min(DSTRBYR1, with_ties = FALSE) %>%
+    ungroup(),  # keep one row per unique plot
+  aes(x = DSTRBYR1)
+) +
+  geom_histogram(binwidth = 1, boundary = 1990, color = "black", fill = "steelblue") +
+  scale_x_continuous(breaks = seq(1990, 2025, by = 1)) +
+  labs(
+    title = "Histogram of Disturbance Years in CA (using first year fire was recorded)",
+    x = "Disturbance Year",
+    y = "Count (Unique PLT_CN)"
+  ) +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust = 1))
+
+h1
+
+h2 <- ggplot(
+  data = OR_burned_plot_coordinates_DSTRBCD1 %>%
+    filter(DSTRBYR1 >= 1990, DSTRBYR1 <= 2025) %>%
+    group_by(PLT_CN) %>%
+    slice_min(DSTRBYR1, with_ties = FALSE) %>%
+    ungroup(),
+  aes(x = DSTRBYR1)
+) +
+  geom_histogram(binwidth = 1, boundary = 1990, color = "black", fill = "steelblue") +
+  scale_x_continuous(breaks = seq(1990, 2025, by = 1)) +
+  labs(
+    title = "Histogram of Disturbance Years in OR (using first year fire was recorded)",
+    x = "Disturbance Year",
+    y = "Count (Unique Plots)"
+  ) +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust = 1))
+
+
+h2
+
+
+
+h3 <- ggplot(
+  data = WA_burned_plot_coordinates_DSTRBCD1 %>%
+    filter(DSTRBYR1 <= 2025) %>%
+    group_by(PLT_CN) %>%
+    slice_min(DSTRBYR1, with_ties = FALSE) %>%
+    ungroup(),  # keep one row per unique plot
+  aes(x = DSTRBYR1)
+) +
+  geom_histogram(binwidth = 1, boundary = 1990, color = "black", fill = "steelblue") +
+  scale_x_continuous(breaks = seq(1990, 2025, by = 1)) +
+  labs(
+    title = "Histogram of Disturbance Years in WA (using first year fire was recorded)",
+    x = "Disturbance Year",
+    y = "Count (Unique Plots)"
+  ) +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust = 1))
+
+
+
+h3
+library('gridExtra')
+grid.arrange (h1, h2, h3)
+
+h4 <- ggplot(
+  data = CA_burned_plot_coordinates_DSTRBCD1 %>%
+    filter(!is.na(DSTRBYR1), DSTRBYR1 >= 1990, DSTRBYR1 <= 2025) %>%
+    group_by(PLT_CN) %>%
+    slice_min(DSTRBYR1, with_ties = FALSE) %>%
+    ungroup() %>%
+    mutate(TimeSinceFire = 2025 - DSTRBYR1),
+  aes(x = TimeSinceFire)
+) +
+  geom_histogram(binwidth = 1, boundary = 0, color = "black", fill = "darkorange") +
+  scale_x_continuous(breaks = seq(0, 35, by = 1)) +
+  labs(
+    title = "CA",
+    x = "Time Since Fire (Years)",
+    y = "Count (Unique Plots)"
+  ) +
+  theme_minimal()
+h4
+
+h5 <- ggplot(
+  data = OR_burned_plot_coordinates_DSTRBCD1 %>%
+    filter(!is.na(DSTRBYR1), DSTRBYR1 >= 1990, DSTRBYR1 <= 2025) %>%
+    group_by(PLT_CN) %>%
+    slice_min(DSTRBYR1, with_ties = FALSE) %>%
+    ungroup() %>%
+    mutate(TimeSinceFire = 2025 - DSTRBYR1),
+  aes(x = TimeSinceFire)
+) +
+  geom_histogram(binwidth = 1, boundary = 0, color = "black", fill = "darkorange") +
+  scale_x_continuous(breaks = seq(0, 35, by = 1)) +
+  labs(
+    title = "OR",
+    x = "Time Since Fire (Years)",
+    y = "Count (Unique Plots)"
+  ) +
+  theme_minimal()
+
+h5
+
+h6 <- ggplot(
+  data = WA_burned_plot_coordinates_DSTRBCD1 %>%
+    filter(!is.na(DSTRBYR1), DSTRBYR1 >= 1990, DSTRBYR1 <= 2025) %>%
+    group_by(PLT_CN) %>%
+    slice_min(DSTRBYR1, with_ties = FALSE) %>%
+    ungroup() %>%
+    mutate(TimeSinceFire = 2025 - DSTRBYR1),
+  aes(x = TimeSinceFire)
+) +
+  geom_histogram(binwidth = 1, boundary = 0, color = "black", fill = "darkorange") +
+  scale_x_continuous(breaks = seq(0, 35, by = 1)) +
+  labs(
+    title = "WA",
+    x = "Time Since Fire (Years)",
+    y = "Count (Unique Plots)"
+  ) +
+  theme_minimal()
+
+h6
+
+grid.arrange (h4, h5, h6)
+
 
 # 600+ plots in ground fire and 400+ plots in canopy fire in CA
 ggplot(dplyr::filter(CA_cond, DSTRBCD1 %in% c(30, 31, 32)),
@@ -197,6 +346,9 @@ NV_TREE_fire_only <- NV_TREE %>%
 UT_TREE_fire_only <- UT_TREE %>%
   filter(PLT_CN %in% UT_forest_type_combined$PLT_CN)
 
+WY_TREE_fire_only <- WY_TREE %>%
+  filter(PLT_CN %in% WY_forest_type_combined$PLT_CN)
+
 # attach SCIENTIFIC_NAME from REF_SPECIES to SPCD in CA_TREE_fire_only_spp_ID
 WA_TREE_fire_only_spp_ID <- WA_TREE_fire_only %>%
   left_join(REF_SPECIES %>% select(SPCD, SCIENTIFIC_NAME), by = "SPCD")
@@ -219,6 +371,9 @@ NV_TREE_fire_only_spp_ID <- NV_TREE_fire_only %>%
 UT_TREE_fire_only_spp_ID <- UT_TREE_fire_only %>%
   left_join(REF_SPECIES %>% select(SPCD, SCIENTIFIC_NAME), by = "SPCD")
 
+WY_TREE_fire_only_spp_ID <- WY_TREE_fire_only %>%
+  left_join(REF_SPECIES %>% select(SPCD, SCIENTIFIC_NAME), by = "SPCD")
+
 # create a list of tree species in fire only plots
 WA_TREE_fire_only_spp_list <- unique(WA_TREE_fire_only_spp_ID$SCIENTIFIC_NAME)
 
@@ -234,6 +389,8 @@ NV_TREE_fire_only_spp_list <- unique(NV_TREE_fire_only_spp_ID$SCIENTIFIC_NAME)
 
 UT_TREE_fire_only_spp_list <- unique(UT_TREE_fire_only_spp_ID$SCIENTIFIC_NAME)
 
+WY_TREE_fire_only_spp_list <- unique(WY_TREE_fire_only_spp_ID$SCIENTIFIC_NAME)
+
 # can we now take the species lists for each state and find the intersection?
 #(i.e. we want a list of total unique species across states)
 
@@ -246,9 +403,11 @@ total_unique_species <- unique(c(
   MT_TREE_fire_only_spp_list,
   CO_TREE_fire_only_spp_list,
   NV_TREE_fire_only_spp_list,
-  UT_TREE_fire_only_spp_list
+  UT_TREE_fire_only_spp_list,
+  WY_TREE_fire_only_spp_list
 ))
 
+write.csv(total_unique_species, file = "fire-severity-unique-species-list.csv")
 
 # try plotting locations on a map of the US
 # color code by burn severity to see the spatial distribution of high and low severity
@@ -286,7 +445,7 @@ western_states <- usa_shapefile %>%
 # Join disturbance code into your plots dataframe
 CA_burned_plot_coordinates_DSTRBCD1 <- CA_burned_plot_coordinates %>%
   left_join(
-    forest_type_combined %>% select(PLT_CN, DSTRBCD1),
+    forest_type_combined %>% select(PLT_CN, DSTRBCD1, DSTRBYR1),
     by = "PLT_CN"
   )
 
@@ -329,7 +488,7 @@ OR_burned_plot_coordinates <- OR_TREE_fire_only %>%
 # 2. Join in the disturbance code from forest_type_combined
 OR_burned_plot_coordinates_DSTRBCD1 <- OR_burned_plot_coordinates %>%
   left_join(
-    OR_forest_type_combined %>% select(PLT_CN, DSTRBCD1),
+    OR_forest_type_combined %>% select(PLT_CN, DSTRBCD1, DSTRBYR1),
     by = "PLT_CN"
   )
 
@@ -351,7 +510,7 @@ WA_burned_plot_coordinates <- WA_TREE_fire_only %>%
 # 2. Join in the disturbance code from forest_type_combined
 WA_burned_plot_coordinates_DSTRBCD1 <- WA_burned_plot_coordinates %>%
   left_join(
-    WA_forest_type_combined %>% select(PLT_CN, DSTRBCD1),
+    WA_forest_type_combined %>% select(PLT_CN, DSTRBCD1, DSTRBYR1),
     by = "PLT_CN"
   )
 
@@ -448,6 +607,27 @@ UT_burned_sf <- st_as_sf(
 )
 
 
+# 1. Join coordinates from the state-level plot table
+WY_burned_plot_coordinates <- WY_TREE_fire_only %>%
+  left_join(
+    WY %>% select(CN, LAT, LON),
+    by = c("PLT_CN" = "CN")
+  )
+
+# 2. Join in the disturbance code from forest_type_combined
+WY_burned_plot_coordinates_DSTRBCD1 <- WY_burned_plot_coordinates %>%
+  left_join(
+    WY_forest_type_combined %>% select(PLT_CN, DSTRBCD1),
+    by = "PLT_CN"
+  )
+
+# 3. Convert to sf object with disturbance info
+WY_burned_sf <- st_as_sf(
+  WY_burned_plot_coordinates_DSTRBCD1,
+  coords = c("LON", "LAT"),
+  crs = 4326
+)
+
 ###### this chunk for NV didnt work, see below instead
 # 1. Join coordinates from the state-level plot table
 NV_burned_plot_coordinates <- NV_TREE_fire_only %>%
@@ -493,6 +673,7 @@ all_burned_sf <- dplyr::bind_rows(
   CO_burned_sf,
   UT_burned_sf,
   NV_burned_sf,
+  WY_burned_sf,
   # etc.
 )
 
@@ -514,27 +695,20 @@ ggplot() +
   coord_sf(xlim = c(-125, -100), ylim = c(30, 50)) +
   theme_minimal() +
   labs(
-    title = "Burned FIA Plots with Disturbance Codes 31 and 32",
     x = "Longitude",
     y = "Latitude"
   )
 
+# lets develop a workflow for extracting climate for filtered plot locations
 
 
-#but we want to further filter for plots that have one pre fire survey as well
-# lets try this with CA plots first
 
-burned_plots <- cond %>%
-  filter(DSTRBCD1 %in% c(30, 31, 32), !is.na(DSTRBYR1)) %>%
-  select(PLT_CN, DSTRBYR1) %>%
-  distinct()
 
-burned_with_surveys <- burned_plots %>%
-  inner_join(plot, by = "PLT_CN") %>%
-  filter(INVYR < DSTRBYR1)  # keep only inventories before the burn
 
-preburn_plots <- burned_with_surveys %>%
-  distinct(PLT_CN)
+
+
+
+
 
 
 # lets look at the understorey too...
