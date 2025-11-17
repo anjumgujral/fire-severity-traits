@@ -1,0 +1,35 @@
+---
+title: "02-trait-analyses"
+author: "Anjum K. Gujral"
+date: '2025-11-16'
+output: html_document
+---
+
+#trait data prep
+```{r}
+# load in TRY data
+TRY_traits <- read.csv("./data/TRY-traits.csv")
+
+# columns of main interest are 'SpeciesName' , 'TraitName' , 'OriglName', 'OrigValueStr'
+# 'OrigUnitStr'
+
+# 'OrigValueStr' has our trait values but it also has other comments, lets drop any rows that are non-numeric
+sum(!is.na(TRY_traits$OrigValueStr))
+
+TRY_trait_data1 <- TRY_traits
+TRY_trait_data1$OrigValueStr <- as.numeric(TRY_trait_data1$OrigValueStr)
+TRY_trait_data1 <- TRY_trait_data1[!is.na(TRY_trait_data1$OrigValueStr),]
+
+# drop any rows that are not traits (i.e. any rows where TraitID == NA)
+TRY_trait_data1 <- TRY_trait_data1[!is.na(TRY_trait_data1$TraitID ),]
+
+# clean species names to drop anything after the species epithet (second word)
+
+
+# drop an underscore in between genus and species epithet
+
+
+
+
+```
+
