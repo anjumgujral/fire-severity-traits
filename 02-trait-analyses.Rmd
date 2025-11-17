@@ -7,6 +7,12 @@ output: html_document
 
 #trait data prep
 ```{r}
+
+library(dplyr)
+library(stringr)
+library(tidyr)
+library(ggplot2)
+
 # load in TRY data
 TRY_traits <- read.csv("./data/TRY-traits.csv")
 
@@ -25,11 +31,18 @@ TRY_trait_data1 <- TRY_trait_data1[!is.na(TRY_trait_data1$TraitID ),]
 
 # clean species names to drop anything after the species epithet (second word)
 
+TRY_trait_data1 <- TRY_trait_data1 %>%
+  mutate(SpeciesName = word(SpeciesName, 1, 2))
 
 # drop an underscore in between genus and species epithet
+TRY_trait_data1 <- TRY_trait_data1 %>%
+  mutate(SpeciesName = paste(word(SpeciesName, 1), 
+                               word(SpeciesName, 2), 
+                               sep = "_"))
 
-
-
+ggplot(TRY_trait_data1, aes(OrigValueStr)) +
+  geom_histogram() +
+  facet_wrap(~ OriglName, scales = "free")
 
 ```
 
