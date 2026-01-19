@@ -40,9 +40,60 @@ TRY_trait_data1 <- TRY_trait_data1 %>%
                                word(SpeciesName, 2), 
                                sep = "_"))
 
-ggplot(TRY_trait_data1, aes(OrigValueStr)) +
-  geom_histogram() +
-  facet_wrap(~ OriglName, scales = "free")
+#lets summarize how many obs (unique species) we have for each trait
+trait_sample_sizes <- TRY_trait_data1 %>%
+  distinct(SpeciesName, OriglName) %>%
+  group_by(OriglName) %>%
+  summarize(Count = n())
+
+# we can also summarize how many traits we have per species
+species_trait_sample_sizes <- aggregate(
+  formula = SpeciesName ~ OriglName,
+  data = TRY_trait_data1,
+  FUN = unique
+)
+
+species_trait_sample_sizes <- TRY_trait_data1 %>%
+  distinct(SpeciesName, OriglName) %>%
+  group_by(SpeciesName) %>%
+  summarize(unique_orig_list = list(unique(OriglName)))
+
+length(unique(TRY_trait_data1$SpeciesName))
 
 ```
 
+```{r}
+# mfs dont know how to spell so we need to fix some species names
+
+#combine
+Abies_lasiocarpa
+Abies_lasiocarpus
+
+Cupressus_sp.
+Cupressus_spp.
+
+
+Lithocarpus_densiflora
+Lithocarpus_densiflorus
+
+	
+Picea_engelmanii
+Picea_engelmannii
+
+Prunus_virginia
+Prunus_virginiana
+
+Pseudotsuga_menziesii
+Pseudotsuga_menziezii
+
+Quercus_garryana
+Quercus_garryanna
+
+	
+Quercus_kelloggii
+Quercus_keloggii
+
+drop 	
+Tree_Quercus
+
+```
