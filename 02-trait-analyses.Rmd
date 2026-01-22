@@ -42,13 +42,13 @@ TRY_trait_data1 <- TRY_trait_data1 %>%
 
 #lets summarize how many obs (unique species) we have for each trait
 trait_sample_sizes <- TRY_trait_data1 %>%
-  distinct(SpeciesName, OriglName) %>%
-  group_by(OriglName) %>%
+  distinct(SpeciesName, TraitName) %>%
+  group_by(TraitName) %>%
   summarize(Count = n())
 
 # we can also summarize how many traits we have per species
 species_trait_sample_sizes <- aggregate(
-  formula = SpeciesName ~ OriglName,
+  x = TraitName ~ SpeciesName,
   data = TRY_trait_data1,
   FUN = unique
 )
@@ -59,6 +59,20 @@ species_trait_sample_sizes <- TRY_trait_data1 %>%
   summarize(unique_orig_list = list(unique(OriglName)))
 
 length(unique(TRY_trait_data1$SpeciesName))
+
+# filter the trait data frame to just look at traits with greater than 13 obs
+filtered_traits<- trait_sample_sizes %>%
+  filter(Count >= 13)
+
+filtered_traits <- filtered_traits$TraitName
+
+filtered_trait_data <- TRY_trait_data1 %>%
+  filter(TraitName %in% filtered_traits)
+
+```
+
+```{r}
+unique(filtered_trait_data$Species[filtered_trait_data$TraitName == "Bark thickness"])
 
 ```
 
