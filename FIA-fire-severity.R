@@ -195,8 +195,8 @@ NV_forest_type_combined <- NV_fire_only %>%
   filter(FORTYPCD %in% c(371, 201, 221, 222, 224, 225, 261, 922))
 
 
-sum(NV_forest_type_combined$DSTRBCD1 == 31, na.rm = TRUE)
-sum(NV_forest_type_combined$DSTRBCD1 == 32, na.rm = TRUE)
+sum(OR_forest_type_combined$DSTRBCD1 == 31, na.rm = TRUE)
+sum(OR_forest_type_combined$DSTRBCD1 == 32, na.rm = TRUE)
 
 # now lets aggregate a species list for each state --- bleh!
 
@@ -741,7 +741,7 @@ ggplot(dplyr::filter(CA_cond, DSTRBCD1 %in% c(30, 31, 32)),
 
 
 
-# lets look at the understorey too...
+# lets look at the understory too...
 
 # attach SCIENTIFIC_NAME from REF_SPECIES to CA_veg_understory_fire_only by matching VEG_SPCD
 # to SPECIES_SYMBOL
