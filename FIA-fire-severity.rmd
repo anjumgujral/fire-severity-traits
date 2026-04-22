@@ -1,4 +1,4 @@
-
+#load packages
 ```{r}
 library(sf)
 library(terra)
@@ -11,7 +11,9 @@ library(here)
 library(rnaturalearth)
 library(rnaturalearthdata)
 library(gridExtra)
-
+```
+#load data
+```{r}
 # load in FIA tree data for western North America (California, Oregon, Washington, Colorado,
 # Utah, Nevada, Wyoming) to encompass the Sierra Nevada, Northern and Southern Coast Ranges,
 # maybe also include New Mexico and Montana.
@@ -51,12 +53,12 @@ MT_TREE <- read.csv("./data/FIA/MT_TREE.csv")
 
 # Load in reference species names
 REF_SPECIES <- read.csv("./data/FIA/REF_SPECIES.csv")
-
-
-condition_codes <- list(CA_cond, CO_cond, NV_cond, OR_cond, UT_cond, WA_cond, WY_cond, ID_cond, .id = "state")
 ```
 
+# filter by disturbance and forest type
 ```{r}
+condition_codes <- list(CA_cond, CO_cond, NV_cond, OR_cond, UT_cond, WA_cond, WY_cond, ID_cond, .id = "state")
+
 # filter plots to DSTRBCD1 == 30, 31, or 32, this is selecting all plots with any fire damage [30],
 # (from crown and ground fire, either prescribed or natural).
 # [31] = ground fire, [32] = canopy fire
@@ -70,36 +72,6 @@ condition_codes <- list(CA_cond, CO_cond, NV_cond, OR_cond, UT_cond, WA_cond, WY
 CA_fire_only <- CA_cond %>%
   filter(if_any(c(DSTRBCD1, DSTRBCD2, DSTRBCD3), ~ .x %in% c(30, 31, 32)))
 
-
-# we want to also filter for plots that have one pre fire survey
-# filter plots with a fire as primary disturbance and keep the ones that have a year recorded for disturbance year
-CA_fire_only_yr <- CA_cond %>%
-  dplyr::filter(DSTRBCD1 %in% c(30, 31, 32), !is.na(DSTRBYR1)) %>%
-  dplyr::select(PLT_CN, DSTRBYR1, DSTRBCD1, INVYR) %>%
-  dplyr::distinct()
-
-# get all inventories for the above filtered plots
-all_fire_plot_inventories <- CA_cond %>%
-  filter(PLT_CN %in% CA_fire_only_yr$PLT_CN)
-
-# join DSTRBCD1 and DSTRBYR1 to all inventories for filtered plots
-all_fire_plot_inventories <- all_fire_plot_inventories %>%
-  left_join(CA_fire_only_yr, by = "PLT_CN")
-
-# Flag pre- and post-fire records
-CA_fire_only_pre_post_fire_surveys <- all_fire_plot_inventories %>%
-  mutate(
-    pre_fire = INVYR.x < DSTRBYR1.x,
-    post_fire = INVYR.x > DSTRBYR1.x
-  )
-
-# keep plots with both pre and post fire surveys
-CA_fire_only_pre_post_fire_surveys2 <- CA_fire_only_pre_post_fire_surveys %>%
-  group_by(PLT_CN) %>%
-  filter(any(pre_fire) & any(post_fire)) %>%
-  ungroup()
-
-
 # what is the most common forest type in the burned plots?
 sort(table(CA_fire_only$FORTYPCD), decreasing = TRUE) # mixed conifer [371]
 
@@ -107,7 +79,7 @@ sort(table(CA_fire_only$FORTYPCD), decreasing = TRUE) # mixed conifer [371]
 forest_type_371 <- CA_fire_only %>%
   filter(FORTYPCD == 371)
 
-# 300+ plots in ground fire, and ~100 plots canopy fire in CA mixed conifer
+# ~250 in ground fire and ~50 in canopy fire in CA mixed conifer
 ggplot(dplyr::filter(forest_type_371, DSTRBCD1 %in% c(30, 31, 32)),
        aes(x = factor(DSTRBCD1))) +
   geom_bar() +
@@ -120,7 +92,9 @@ sum(forest_type_371$DSTRBCD1 == 32, na.rm = TRUE)
 
 forest_type_371 %>%
   summarise(unique_plots = n_distinct(PLT_CN))
+```
 
+```{r}
 # expand to also include CA mixed conifer, douglas-fir, ponderosa pine,
 #incense cedar, sugar pine, jefferyi, pine groups, and white fir, and
 # CA black oak groups
@@ -129,6 +103,7 @@ forest_type_combined <- CA_fire_only %>%
 
 sum(forest_type_combined$DSTRBCD1 == 31, na.rm = TRUE)
 sum(forest_type_combined$DSTRBCD1 == 32, na.rm = TRUE)
+# expanding to similar mixed-conifer forest types == 300+ plots in ground fire, and ~100 plots canopy fire  
 
 forest_type_combined %>%
   summarise(unique_plots = n_distinct(PLT_CN))
@@ -154,7 +129,7 @@ CA_TREE_fire_only_spp_list <- unique(CA_TREE_fire_only_spp_ID$SCIENTIFIC_NAME)
 write.csv(CA_TREE_fire_only_spp_list, file = "CA_TREE_fire_only_spp_list.csv")
 
 
-# ok --  lets add some more mixed conifer states and run through the filtering process again
+# lets add some more mixed conifer states and run through the filtering process again
 # filter for plots with fire -- ground or canopy fires
 WA_fire_only <- WA_cond %>%
   filter(if_any(c(DSTRBCD1, DSTRBCD2, DSTRBCD3), ~ .x %in% c(30, 31, 32)))
@@ -209,6 +184,9 @@ NV_forest_type_combined <- NV_fire_only %>%
 sum(OR_forest_type_combined$DSTRBCD1 == 31, na.rm = TRUE)
 sum(OR_forest_type_combined$DSTRBCD1 == 32, na.rm = TRUE)
 
+```
+# species list
+```{r}
 # now lets aggregate a species list for each state
 # STATE_TREE links to STAT_COND via the common identifier PLT_CN
 # take the PLT_CN codes from forest_type_combined and filter STATE_TREE
@@ -295,7 +273,10 @@ total_unique_species <- unique(c(
 ))
 
 write.csv(total_unique_species, file = "fire-severity-unique-species-list.csv")
+```
 
+# plot locations/distribution
+```{r}
 # try plotting locations on a map of the US
 # color code by burn severity to see the spatial distribution of high and low severity
 
@@ -592,8 +573,9 @@ ggplot() +
     x = "Longitude",
     y = "Latitude"
   )
-
-
+```
+# plot level summary stats
+```{r}
 # lets visualize some summary stats about our burned and unburned plots
 
 h1 <- ggplot(
@@ -731,8 +713,48 @@ ggplot(dplyr::filter(CA_cond, DSTRBCD1 %in% c(30, 31, 32)),
   labs(x = "Disturbance Code", y = "Count",
        title = "Fire-Related Disturbances (Codes 30–32)") +
   theme_minimal()
+```
+
+#pre and post surveys
+```{r}
+# we want to also filter for plots that have one pre fire survey
+# filter plots with a fire as primary disturbance and keep the ones that have a year recorded for disturbance year
+CA_fire_only_yr <- CA_cond %>%
+  dplyr::filter(DSTRBCD1 %in% c(30, 31, 32), !is.na(DSTRBYR1)) %>%
+  dplyr::select(PLT_CN, DSTRBYR1, DSTRBCD1, INVYR) %>%
+  dplyr::distinct()
+
+# get all inventories for the above filtered plots
+all_fire_plot_inventories <- CA_cond %>%
+  filter(PLT_CN %in% CA_fire_only_yr$PLT_CN)
+
+# join DSTRBCD1 and DSTRBYR1 to all inventories for filtered plots
+all_fire_plot_inventories <- all_fire_plot_inventories %>%
+  left_join(CA_fire_only_yr, by = "PLT_CN")
+
+# Flag pre- and post-fire records
+CA_fire_only_pre_post_fire_surveys <- all_fire_plot_inventories %>%
+  mutate(
+    pre_fire = INVYR.x < DSTRBYR1.x,
+    post_fire = INVYR.x > DSTRBYR1.x
+  )
+
+# keep plots with both pre and post fire surveys
+CA_fire_only_pre_post_fire_surveys2 <- CA_fire_only_pre_post_fire_surveys %>%
+  group_by(PLT_CN) %>%
+  filter(any(pre_fire) & any(post_fire)) %>%
+  ungroup()
+
+# only 8 of the 400 plots in CA have both pre and post surveys?
+
+# check for the other states
 
 
+```
+
+
+# climate extraction 
+```{r}
 
 
 
@@ -747,7 +769,10 @@ OR_burned_plot_coordinates
 
 
 
+```
 
+# understory
+```{r}
 # lets look at the understory too...
 
 # attach SCIENTIFIC_NAME from REF_SPECIES to CA_veg_understory_fire_only by matching VEG_SPCD
