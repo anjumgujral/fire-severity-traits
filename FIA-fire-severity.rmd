@@ -68,8 +68,6 @@ condition_codes <- list(CA_cond, CO_cond, NV_cond, OR_cond, UT_cond, WA_cond, WY
 
 # plots with fire only, use a vector of plots from this df to link with tree and veg subplot data
 # plots with at least 1 fire for disturbance code 1 (classified as most important disturbance at the time of resampling)
-#CA_fire_only <- CA_cond %>%
-  #filter(DSTRBCD1 %in% c(30, 31, 32))
 
 # plots with at least 1 fire in any disturbance classificiation (varying importance)
 CA_fire_only <- CA_cond %>%
@@ -98,6 +96,7 @@ forest_type_371 %>%
 ```
 # expand forest types
 ```{r}
+# using CA_COND table
 # expand to also include CA mixed conifer, douglas-fir, ponderosa pine,
 #incense cedar, sugar pine, jefferyi, pine groups, and white fir, and
 # CA black oak groups
@@ -113,7 +112,7 @@ forest_type_combined %>%
 
 
 # take the PLT_CN codes from forest_type_combined and filter CA_TREE
-# forest_type_combined is our key dataframe with unique PLT_CN and their disturbance codes originally from CA_cond
+# forest_type_combined is our key dataframe with unique PLT_CN and their disturbance codes originally from CA_COND
 CA_TREE_fire_only <- CA_TREE %>%
   filter(PLT_CN %in% forest_type_combined$PLT_CN)
 #467 plots burned in combined mixed conifer forest types
@@ -197,6 +196,233 @@ sum(OR_forest_type_combined$DSTRBCD1 == 31, na.rm = TRUE)
 sum(OR_forest_type_combined$DSTRBCD1 == 32, na.rm = TRUE)
 
 ```
+
+
+#plot by condition
+
+```{r}
+# take forest type combined dataframes (which are COND tables filtered for our disturbance and forest types) and extract the unique CN codes from forest_type_combined tables and filter PLOT tables (with all revisits) for the select CN's 
+
+# disturbance history
+CA_disturbance_history <-  CA_forest_type_combined %>%
+  dplyr::select(
+    PLT_CN,
+    DSTRBCD1, DSTRBYR1,
+    DSTRBCD2, DSTRBYR2,
+    DSTRBCD3, DSTRBYR3
+  ) %>%
+  distinct()
+
+
+CA_PLOT_by_COND <- CA %>%
+  left_join(CA_disturbance_history, by = c("CN" = "PLT_CN"))
+# this retains multiple rows for a PLT_CN due to multiple rows for PLT_CN x CONDID combo from CA_COND
+
+# to collapse CA_COND table to have 1 row per PLT_CN first check that CONDID is the only thing that differs across rows with the same PLT_CN, we just want to make sure DSTRBCD dont differ across PLT_CN in COND table
+
+CA_cond %>%
+  dplyr::group_by(PLT_CN) %>%
+  dplyr::summarise(
+    problem = dplyr::n_distinct(
+      paste(DSTRBCD1, DSTRBCD2, DSTRBCD3,
+            DSTRBYR1, DSTRBYR2, DSTRBYR3)
+    ) > 1,
+    .groups = "drop"
+  ) %>%
+  dplyr::summarise(any_problem = any(problem))
+
+
+CA_cond %>%
+  group_by(PLT_CN) %>%
+  summarise(
+    n_profiles = n_distinct(
+      paste(DSTRBCD1, DSTRBCD2, DSTRBCD3,
+            DSTRBYR1, DSTRBYR2, DSTRBYR3)
+    ),
+    .groups = "drop"
+  ) %>%
+  filter(n_profiles > 1) %>%
+  nrow()
+
+revisit_table <- CA %>%
+  dplyr::group_by(PLOT) %>%
+  dplyr::summarise(
+    n_visits = dplyr::n(),
+    first_year = min(INVYR),
+    last_year = max(INVYR),
+    .groups = "drop"
+  )
+
+# 38021 plots have differing DSTRBCD between rows of the same PLT_CN in COND table
+
+#variaiton in COND rows per plot may be ecologically meaningful
+
+
+CA_PLOT_by_COND <- CA_PLOT_by_COND %>%
+  dplyr::left_join(revisit_table, by = "PLOT")
+
+```
+
+# pre and post surveys
+```{r}
+# we want to also filter for plots that have one pre fire survey
+# filter plots with a fire as primary disturbance and keep the ones that have a year recorded for disturbance year
+
+CA_fire_only_yr <- CA_cond %>%
+  dplyr::filter(DSTRBCD1 %in% c(30, 31, 32), !is.na(DSTRBYR1)) %>%
+  dplyr::select(PLT_CN, DSTRBYR1, DSTRBCD1, INVYR) %>%
+  dplyr::distinct()
+
+# get all inventories for the above filtered plots
+CA_all_fire_plot_inventories <- CA_cond %>%
+  filter(PLT_CN %in% CA_fire_only_yr$PLT_CN)
+
+# join DSTRBCD1 and DSTRBYR1 to all inventories for filtered plots
+CA_all_fire_plot_inventories <- CA_all_fire_plot_inventories %>%
+  left_join(CA_fire_only_yr, by = "PLT_CN")
+
+# Flag pre- and post-fire records
+CA_fire_only_pre_post_fire_surveys <- CA_all_fire_plot_inventories %>%
+  mutate(
+    pre_fire = INVYR.x < DSTRBYR1.x,
+    post_fire = INVYR.x > DSTRBYR1.x
+  )
+
+# keep plots with both pre and post fire surveys
+CA_fire_only_pre_post_fire_surveys2 <- CA_fire_only_pre_post_fire_surveys %>%
+  group_by(PLT_CN) %>%
+  filter(any(pre_fire) & any(post_fire)) %>%
+  ungroup()
+# only 8 of the 400 plots in CA have both pre and post surveys?
+
+# check for the other states
+OR_fire_only_yr <- OR_cond %>%
+  dplyr::filter(DSTRBCD1 %in% c(30, 31, 32), !is.na(DSTRBYR1)) %>%
+  dplyr::select(PLT_CN, DSTRBYR1, DSTRBCD1, INVYR) %>%
+  dplyr::distinct()
+
+# get all inventories for the above filtered plots
+OR_all_fire_plot_inventories <- OR_cond %>%
+  filter(PLT_CN %in% OR_fire_only_yr$PLT_CN)
+
+# join DSTRBCD1 and DSTRBYR1 to all inventories for filtered plots
+OR_all_fire_plot_inventories <- OR_all_fire_plot_inventories %>%
+  left_join(OR_fire_only_yr, by = "PLT_CN")
+
+# Flag pre- and post-fire records
+OR_fire_only_pre_post_fire_surveys <- OR_all_fire_plot_inventories %>%
+  mutate(
+    pre_fire = INVYR.x < DSTRBYR1.x,
+    post_fire = INVYR.x > DSTRBYR1.x
+  )
+
+# keep plots with both pre and post fire surveys
+OR_fire_only_pre_post_fire_surveys2 <- OR_fire_only_pre_post_fire_surveys %>%
+  group_by(PLT_CN) %>%
+  filter(any(pre_fire) & any(post_fire)) %>%
+  ungroup()
+
+# 44 burned plots with pre and post fire surveys in OR out of a total of 603 burned plots in OR 
+
+WA_fire_only_yr <- WA_cond %>%
+  dplyr::filter(DSTRBCD1 %in% c(30, 31, 32), !is.na(DSTRBYR1)) %>%
+  dplyr::select(PLT_CN, DSTRBYR1, DSTRBCD1, INVYR) %>%
+  dplyr::distinct()
+
+# get all inventories for the above filtered plots
+WA_all_fire_plot_inventories <- WA_cond %>%
+  filter(PLT_CN %in% WA_fire_only_yr$PLT_CN)
+
+# join DSTRBCD1 and DSTRBYR1 to all inventories for filtered plots
+WA_all_fire_plot_inventories <- WA_all_fire_plot_inventories %>%
+  left_join(WA_fire_only_yr, by = "PLT_CN")
+
+# Flag pre- and post-fire records
+WA_fire_only_pre_post_fire_surveys <- WA_all_fire_plot_inventories %>%
+  mutate(
+    pre_fire = INVYR.x < DSTRBYR1.x,
+    post_fire = INVYR.x > DSTRBYR1.x
+  )
+
+# keep plots with both pre and post fire surveys
+WA_fire_only_pre_post_fire_surveys2 <- WA_fire_only_pre_post_fire_surveys %>%
+  group_by(PLT_CN) %>%
+  filter(any(pre_fire) & any(post_fire)) %>%
+  ungroup()
+
+# only 18 of the 235 plots in WA have both pre and post surveys
+
+```
+
+# unique resurveys
+```{r}
+# now lets aggregate a species list for each state
+# STATE_TREE links to STAT_COND via the common identifier PLT_CN
+# take the PLT_CN codes from forest_type_combined and filter STATE_TREE
+CA_PLOT_fire_only <- CA %>%
+  filter(CN %in% CA_forest_type_combined$PLT_CN)
+
+temp <- CA_PLOT_fire_only %>%
+    group_by(STATECD, UNITCD, COUNTYCD, PLOT) %>%
+    summarise(n_surveys = n())
+min(temp$n_surveys)
+
+# CA fire only plots have a max of 2 surveys
+
+# CA_cond has the disturbance info but not revisit info, CA_PLOT has all the  revisits for each unique plot
+# combine disturbance info from CA_cond to CA_PLOT
+
+CA_PLOT_fire_only_revists <-  CA %>%
+  left_join(
+    CA_COND %>%
+      select(PLT_CN, DSTRBCD1, DSTRBYR1),
+    by = c("CN" = "PLT_CN")
+  )
+
+WA_PLOT_fire_only <- WA_PLOT %>%
+  filter(PLT_CN %in% WA_forest_type_combined$PLT_CN)
+
+OR_TREE_fire_only <- OR_TREE %>%
+  filter(PLT_CN %in% OR_forest_type_combined$PLT_CN)
+
+ID_TREE_fire_only <- ID_TREE %>%
+  filter(PLT_CN %in% ID_forest_type_combined$PLT_CN)
+
+MT_TREE_fire_only <- MT_TREE %>%
+  filter(PLT_CN %in% MT_forest_type_combined$PLT_CN)
+
+CO_TREE_fire_only <- CO_TREE %>%
+  filter(PLT_CN %in% CO_forest_type_combined$PLT_CN)
+
+NV_TREE_fire_only <- NV_TREE %>%
+  filter(PLT_CN %in% NV_forest_type_combined$PLT_CN)
+
+UT_TREE_fire_only <- UT_TREE %>%
+  filter(PLT_CN %in% UT_forest_type_combined$PLT_CN)
+
+WY_TREE_fire_only <- WY_TREE %>%
+  filter(PLT_CN %in% WY_forest_type_combined$PLT_CN)
+
+
+```
+
+```{r}
+max(xtabs(~TREE, CA_TREE))
+CA_TREE %>% group_by(PLT_CN) %>% summarize(nrevist = length(unique(INVYR)))
+
+temp <- (CA_TREE %>% group_by(PLT_CN) %>% summarize(nrevist = length(unique(INVYR))))
+max(temp$nrevist)
+
+# to find out the number of revisits for a unique plot, you have to use the CA_PLOT dataframe, CA_cond will just have one inventory for each plot because it is just telling us the conditions of that plot, mulitple rows for a plot in CA_cond due to different conditions
+
+temp <- CA %>%
+    group_by(STATECD, UNITCD, COUNTYCD, PLOT) %>%
+    summarise(n_surveys = n())
+max(temp$n_surveys)
+
+
+```
+
 # species list
 ```{r}
 # now lets aggregate a species list for each state
@@ -294,6 +520,7 @@ total_unique_species <- unique(c(
 
 write.csv(total_unique_species, file = "fire-severity-unique-species-list.csv")
 ```
+
 
 # plot locations/distribution
 ```{r}
@@ -734,165 +961,6 @@ ggplot(dplyr::filter(CA_cond, DSTRBCD1 %in% c(30, 31, 32)),
        title = "Fire-Related Disturbances (Codes 30–32)") +
   theme_minimal()
 ```
-# unique resurveys
-```{r}
-# now lets aggregate a species list for each state
-# STATE_TREE links to STAT_COND via the common identifier PLT_CN
-# take the PLT_CN codes from forest_type_combined and filter STATE_TREE
-CA_PLOT_fire_only <- CA %>%
-  filter(CN %in% CA_forest_type_combined$PLT_CN)
-
-temp <- CA_PLOT_fire_only %>%
-    group_by(STATECD, UNITCD, COUNTYCD, PLOT) %>%
-    summarise(n_surveys = n())
-min(temp$n_surveys)
-
-# CA fire only plots have a max of 2 surveys
-
-# CA_cond has the disturbance info but not revisit info, CA_PLOT has all the  revisits for each unique plot
-# combine disturbance info from CA_cond to CA_PLOT
-
-CA_PLOT_fire_only_revists <-  CA %>%
-  left_join(
-    CA_COND %>%
-      select(PLT_CN, DSTRBCD1, DSTRBYR1),
-    by = c("CN" = "PLT_CN")
-  )
-
-WA_PLOT_fire_only <- WA_PLOT %>%
-  filter(PLT_CN %in% WA_forest_type_combined$PLT_CN)
-
-OR_TREE_fire_only <- OR_TREE %>%
-  filter(PLT_CN %in% OR_forest_type_combined$PLT_CN)
-
-ID_TREE_fire_only <- ID_TREE %>%
-  filter(PLT_CN %in% ID_forest_type_combined$PLT_CN)
-
-MT_TREE_fire_only <- MT_TREE %>%
-  filter(PLT_CN %in% MT_forest_type_combined$PLT_CN)
-
-CO_TREE_fire_only <- CO_TREE %>%
-  filter(PLT_CN %in% CO_forest_type_combined$PLT_CN)
-
-NV_TREE_fire_only <- NV_TREE %>%
-  filter(PLT_CN %in% NV_forest_type_combined$PLT_CN)
-
-UT_TREE_fire_only <- UT_TREE %>%
-  filter(PLT_CN %in% UT_forest_type_combined$PLT_CN)
-
-WY_TREE_fire_only <- WY_TREE %>%
-  filter(PLT_CN %in% WY_forest_type_combined$PLT_CN)
-
-
-```
-
-```{r}
-max(xtabs(~TREE, CA_TREE))
-CA_TREE %>% group_by(PLT_CN) %>% summarize(nrevist = length(unique(INVYR)))
-
-temp <- (CA_TREE %>% group_by(PLT_CN) %>% summarize(nrevist = length(unique(INVYR))))
-max(temp$nrevist)
-
-# to find out the number of revisits for a unique plot, you have to use the CA_PLOT dataframe, CA_cond will just have one inventory for each plot because it is just telling us the conditions of that plot, mulitple rows for a plot in CA_cond due to different conditions
-
-temp <- CA %>%
-    group_by(STATECD, UNITCD, COUNTYCD, PLOT) %>%
-    summarise(n_surveys = n())
-max(temp$n_surveys)
-
-
-```
-#pre and post surveys
-```{r}
-# we want to also filter for plots that have one pre fire survey
-# filter plots with a fire as primary disturbance and keep the ones that have a year recorded for disturbance year
-
-CA_fire_only_yr <- CA_cond %>%
-  dplyr::filter(DSTRBCD1 %in% c(30, 31, 32), !is.na(DSTRBYR1)) %>%
-  dplyr::select(PLT_CN, DSTRBYR1, DSTRBCD1, INVYR) %>%
-  dplyr::distinct()
-
-# get all inventories for the above filtered plots
-CA_all_fire_plot_inventories <- CA_cond %>%
-  filter(PLT_CN %in% CA_fire_only_yr$PLT_CN)
-
-# join DSTRBCD1 and DSTRBYR1 to all inventories for filtered plots
-CA_all_fire_plot_inventories <- CA_all_fire_plot_inventories %>%
-  left_join(CA_fire_only_yr, by = "PLT_CN")
-
-# Flag pre- and post-fire records
-CA_fire_only_pre_post_fire_surveys <- CA_all_fire_plot_inventories %>%
-  mutate(
-    pre_fire = INVYR.x < DSTRBYR1.x,
-    post_fire = INVYR.x > DSTRBYR1.x
-  )
-
-# keep plots with both pre and post fire surveys
-CA_fire_only_pre_post_fire_surveys2 <- CA_fire_only_pre_post_fire_surveys %>%
-  group_by(PLT_CN) %>%
-  filter(any(pre_fire) & any(post_fire)) %>%
-  ungroup()
-# only 8 of the 400 plots in CA have both pre and post surveys?
-
-# check for the other states
-OR_fire_only_yr <- OR_cond %>%
-  dplyr::filter(DSTRBCD1 %in% c(30, 31, 32), !is.na(DSTRBYR1)) %>%
-  dplyr::select(PLT_CN, DSTRBYR1, DSTRBCD1, INVYR) %>%
-  dplyr::distinct()
-
-# get all inventories for the above filtered plots
-OR_all_fire_plot_inventories <- OR_cond %>%
-  filter(PLT_CN %in% OR_fire_only_yr$PLT_CN)
-
-# join DSTRBCD1 and DSTRBYR1 to all inventories for filtered plots
-OR_all_fire_plot_inventories <- OR_all_fire_plot_inventories %>%
-  left_join(OR_fire_only_yr, by = "PLT_CN")
-
-# Flag pre- and post-fire records
-OR_fire_only_pre_post_fire_surveys <- OR_all_fire_plot_inventories %>%
-  mutate(
-    pre_fire = INVYR.x < DSTRBYR1.x,
-    post_fire = INVYR.x > DSTRBYR1.x
-  )
-
-# keep plots with both pre and post fire surveys
-OR_fire_only_pre_post_fire_surveys2 <- OR_fire_only_pre_post_fire_surveys %>%
-  group_by(PLT_CN) %>%
-  filter(any(pre_fire) & any(post_fire)) %>%
-  ungroup()
-
-# 44 burned plots with pre and post fire surveys in OR out of a total of 603 burned plots in OR 
-
-WA_fire_only_yr <- WA_cond %>%
-  dplyr::filter(DSTRBCD1 %in% c(30, 31, 32), !is.na(DSTRBYR1)) %>%
-  dplyr::select(PLT_CN, DSTRBYR1, DSTRBCD1, INVYR) %>%
-  dplyr::distinct()
-
-# get all inventories for the above filtered plots
-WA_all_fire_plot_inventories <- WA_cond %>%
-  filter(PLT_CN %in% WA_fire_only_yr$PLT_CN)
-
-# join DSTRBCD1 and DSTRBYR1 to all inventories for filtered plots
-WA_all_fire_plot_inventories <- WA_all_fire_plot_inventories %>%
-  left_join(WA_fire_only_yr, by = "PLT_CN")
-
-# Flag pre- and post-fire records
-WA_fire_only_pre_post_fire_surveys <- WA_all_fire_plot_inventories %>%
-  mutate(
-    pre_fire = INVYR.x < DSTRBYR1.x,
-    post_fire = INVYR.x > DSTRBYR1.x
-  )
-
-# keep plots with both pre and post fire surveys
-WA_fire_only_pre_post_fire_surveys2 <- WA_fire_only_pre_post_fire_surveys %>%
-  group_by(PLT_CN) %>%
-  filter(any(pre_fire) & any(post_fire)) %>%
-  ungroup()
-
-# only 18 of the 235 plots in WA have both pre and post surveys
-
-```
-
 
 # climate extraction 
 ```{r}
