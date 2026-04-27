@@ -197,9 +197,7 @@ sum(OR_forest_type_combined$DSTRBCD1 == 32, na.rm = TRUE)
 
 ```
 
-
 #plot by condition
-
 ```{r}
 # take forest type combined dataframes (which are COND tables filtered for our disturbance and forest types) and extract the unique CN codes from forest_type_combined tables and filter PLOT tables (with all revisits) for the select CN's 
 
@@ -255,11 +253,25 @@ revisit_table <- CA %>%
 
 # 38021 plots have differing DSTRBCD between rows of the same PLT_CN in COND table
 
-#variaiton in COND rows per plot may be ecologically meaningful
+#variation in COND rows per plot may be ecologically meaningful
 
 
-CA_PLOT_by_COND <- CA_PLOT_by_COND %>%
-  dplyr::left_join(revisit_table, by = "PLOT")
+#CA_PLOT_by_COND <- CA_PLOT_by_COND %>%
+  #dplyr::left_join(revisit_table, by = "PLOT")
+
+
+# lets simplify by taking the dominant condition 
+# CONDPROP_UNADJ = proportion of the plot occupied by that condition (ranges from # 0–1, sums to ~1 across conditions in a plot)
+
+# the dominant condition = the largest CONDPROP_UNADJ for a given PLT_CN.
+
+CA_cond_main <- CA_cond %>%
+  group_by(PLT_CN) %>%
+  slice_max(order_by = CONDPROP_UNADJ, n = 1, with_ties = FALSE) %>%
+  ungroup()
+
+#CA_plot_level <- CA %>%
+  #left_join(CA_cond_main, by = c("CN" = "PLT_CN"))
 
 ```
 
