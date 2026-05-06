@@ -267,8 +267,8 @@ CA_PLOT_IDs <- CA_PLOT %>%
 # collapse information from multiple CONDIDs associated with each plot to avoid many-to-many mapping
 # and then filter by fire and forest type  
 
-#plot_id → multiple CONDIDs → each CONDID has up to 3 disturbance slots (codes and years)
-
+#plot_id → multiple CONDIDs → each CONDID has up to 3 disturbance codes and years
+# one row for a specific plot_id, CONID, and disturbance event (combining DSTRBCD and DSTRBYR)
 CA_COND_long <- CA_COND_IDs %>%
   dplyr::select(plot_id, CONDID, FORTYPCD,
          DSTRBCD1, DSTRBCD2, DSTRBCD3,
@@ -281,37 +281,30 @@ CA_COND_long <- CA_COND_IDs %>%
   filter(DSTRBCD %in% c(30, 31, 32)) %>%
   filter(FORTYPCD %in% c(371, 201, 221, 222, 224, 225, 261, 922)) 
 
+# summarize fire history across rows for unique plot_id (one row per plot_id)
 CA_fire_summary <- CA_COND_long %>%
   group_by(plot_id) %>%
   summarise(
-    n_fire_events = n(),
-    fire_types = paste(sort(unique(DSTRBCD)), collapse = ", "),
+    n_fire_events = n_distinct(DSTRBYR), # number of distinct fire years per plot
+    
+    # this just collapses all codes into a list but not necessarily relative to year
+    fire_types = paste(sort(unique(DSTRBCD)), collapse = ", "), 
     fire_years = paste(sort(unique(DSTRBYR)), collapse = ", "),
-    multiple_fires = n() > 1,
-    type_changed = n_distinct(DSTRBCD) > 1,
-    year_changed = n_distinct(DSTRBYR) > 1,
+    
+    multiple_fires = n_distinct(DSTRBYR) > 1, # did fire occur more than once?
+    multiple_severity = n_distinct(DSTRBCD) > 1, # are there multiple fire types?
     first_fire_year = min(DSTRBYR, na.rm = TRUE),
     last_fire_year = max(DSTRBYR, na.rm = TRUE),
     .groups = "drop"
   )
-
+           
 CA_burned_PLOT_IDs <- CA_fire_summary %>% 
   distinct(plot_id)
 
 # merge COND and PLOT by this unique ID 
 CA_PLOT_by_COND <- CA_PLOT_IDs %>%
-  semi_join(CA_burned_PLOT_IDs, by = "plot_id") %>%
-  left_join(CA_fire_summary, by = "plot_id")
-
-CA_PLOT_by_COND %>%
-  group_by(plot_id) %>%
-  summarise(n_revisits = n(), .groups = "drop") %>%
-  count(n_revisits)
-
-# n=2 (288)
-# n=3 (146)
-
-#this means each plot was revisited at least twice? 
+  semi_join(CA_burned_PLOT_IDs, by = "plot_id") %>%  #keep only plot_ids with at least one fire 
+  left_join(CA_fire_summary, by = "plot_id")  #add fire summary to each plot, should be one-to-many mapping
 
 #for each unique plot, count how many unique inventory years (INVYR) it has
 CA_PLOT_by_COND %>%
@@ -331,6 +324,43 @@ CA_fire_events <- CA_COND_long %>%
   distinct() %>%
   rename(fire_year = DSTRBYR)
 
+# does each unique plot_id have a pre and post fire survey around any/all fire years?
+CA_prepost_fire_summary <- CA_PLOT_by_COND %>%
+  distinct(plot_id, INVYR) %>%
+  inner_join(
+    CA_fire_events %>% distinct(plot_id, fire_year),
+    by = "plot_id"
+  ) %>%
+  mutate(
+    relationship = case_when(
+      INVYR < fire_year ~ "pre",
+      INVYR > fire_year ~ "post",
+      TRUE ~ "same_year"
+    )
+  ) %>%
+  group_by(plot_id, fire_year) %>%
+  summarise(
+    has_pre  = any(relationship == "pre"),
+    has_post = any(relationship == "post"),
+    n_pre_surveys  = sum(relationship == "pre"),
+    n_post_surveys = sum(relationship == "post"),
+    .groups = "drop"
+  ) %>%
+  mutate(
+      status = case_when(
+      has_pre & has_post ~ "pre_and_post",
+      has_pre ~ "pre_only",
+      has_post ~ "post_only",
+      TRUE ~ "no_clear_separation"
+    )
+  )
+
+CA_prepost_fire_summary %>%
+  count(status)
+
+# post only = 106
+# pre only = 49
+#pre and post = 313
 
 ```
 
