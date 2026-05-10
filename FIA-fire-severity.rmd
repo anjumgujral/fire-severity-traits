@@ -363,6 +363,26 @@ CA_prepost_fire_summary %>%
 #pre and post = 313
 
 ```
+# tree
+```{r}
+# do we have surviving trees in post-fire surveys?
+
+# to locate a specific tree ID for use the following variables 
+# STATECD, INVYR, UNITCD, COUNTYCD, PLOT, SUBP, TREE
+
+
+#Tree number. A number used to uniquely identify a tree on a subplot. Tree numbers can
+#be used to track trees when PLOT.DESIGNCD is the same between inventories.
+
+
+# attach species names from REF_SPECIES to match codes 
+
+
+# get the abundance of live and dead trees per species in each plot 
+
+# STATUSCD = 0, STATUSCD = 1 (live), STATUSCD = 2 (dead)
+
+```
 
 # time since fire
 ```{r}
