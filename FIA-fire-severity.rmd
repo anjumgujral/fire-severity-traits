@@ -252,25 +252,6 @@ CA_PLOT_IDs %>%
 
 # trying it 3 different ways there are between 22-33 plots with pre and post fire surveys
 
-# how many plots are there in CA
-CA_PLOT %>%
-  distinct(LAT, LON) %>%
-  nrow()
-# 22362
-
-length(unique(CA_COND_IDs$plot_id)) # 22589
-length(unique(CA_PLOT_IDs$plot_id)) # 22589
-
-# how many plots burned multiple times?
-
-# how many plots that burned multipe times have different severities?
-
-# how many plots that burned once have multiple severities within a plot?
-
-
-# create a column for fire_year_severity in CA_fire_summary
-
-
 ```
 
 # unique plot ids
@@ -391,6 +372,25 @@ CA_prepost_fire_summary %>%
 # pre only = 49
 # pre and post = 304
 
+
+# how many plots are there in CA
+CA_PLOT %>%
+  distinct(LAT, LON) %>%
+  nrow()
+# 22362
+
+length(unique(CA_COND_IDs$plot_id)) # 22589
+length(unique(CA_PLOT_IDs$plot_id)) # 22589
+
+# how many plots burned multiple times?
+
+# how many plots that burned multipe times have different severities?
+
+# how many plots that burned once have multiple severities within a plot?
+
+
+# create a column for fire_year_severity in CA_fire_summary
+
 ```
 # tree
 ```{r}
@@ -448,7 +448,7 @@ CA_TREE_prepost_fire <- CA_TREE_filtered %>%
     by = "plot_id"
   )
 
-# summarize the number of trees per plot 
+# summarize the number of trees per plot (consolidating SUBP)
 CA_TREE_per_plot <- CA_TREE_prepost_fire %>%
   distinct(plot_id, INVYR, fire_year, status, SUBP, TREE) %>%
   group_by(plot_id, INVYR, fire_year, status) %>%
@@ -495,6 +495,43 @@ CA_TREE_post_fire_plots_tree_status <- CA_TREE_post_fire_plots_tree_status %>%
       dplyr::select(SPCD, GENUS, SPECIES),
     by = "SPCD"
   )
+
+# number of species with STATUSCD = 1 in post-fire plots
+CA_TREE_post_fire_plot_summary <- CA_TREE_prepost_fire %>%
+  filter(
+    INVYR > fire_year,
+    STATUSCD == 1
+  ) %>%
+  group_by(plot_id, INVYR, fire_year) %>%
+  summarise(
+    n_live_species = n_distinct(SPCD),
+    n_live_trees = n(),
+    .groups = "drop"
+  )
+
+# species abundances (live) per plot
+CA_TREE_post_fire_species_summary <- CA_TREE_prepost_fire %>%
+  filter(
+    INVYR > fire_year,
+    STATUSCD == 1
+  ) %>%
+  group_by(plot_id, INVYR, fire_year, SPCD) %>%
+  summarise(
+    n_live_trees_species = n(),
+    .groups = "drop"
+  )
+
+CA_TREE_post_fire_species_summary <- CA_TREE_post_fire_species_summary %>%
+  left_join(
+    REF_SPECIES %>%
+      dplyr::select(SPCD, GENUS, SPECIES),
+    by = "SPCD"
+  )
+
+CA_TREE_post_fire_species_summary <- CA_TREE_post_fire_species_summary %>%
+  mutate(species = paste(GENUS,SPECIES, sep = "_"))
+
+# do we also want to know what percentage of trees per species died between pre and post fire surveys?
 
 
 ```
