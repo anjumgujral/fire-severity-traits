@@ -52,6 +52,8 @@ WY_TREE <- read.csv("./data/FIA/WY_TREE.csv")
 ID_TREE <- read.csv("./data/FIA/ID_TREE.csv")
 MT_TREE <- read.csv("./data/FIA/MT_TREE.csv")
 
+CA_SEEDLING <- read.csv("./data/FIA/CA_SEEDLING.csv")
+
 # Load in reference species names
 REF_SPECIES <- read.csv("./data/FIA/REF_SPECIES.csv")
 ```
@@ -250,9 +252,28 @@ CA_PLOT_IDs %>%
 
 # trying it 3 different ways there are between 22-33 plots with pre and post fire surveys
 
+# how many plots are there in CA
+CA_PLOT %>%
+  distinct(LAT, LON) %>%
+  nrow()
+# 22362
+
+length(unique(CA_COND_IDs$plot_id)) # 22589
+length(unique(CA_PLOT_IDs$plot_id)) # 22589
+
+# how many plots burned multiple times?
+
+# how many plots that burned multipe times have different severities?
+
+# how many plots that burned once have multiple severities within a plot?
+
+
+# create a column for fire_year_severity in CA_fire_summary
+
+
 ```
 
-# a new strategy
+# unique plot ids
 ```{r}
 # create a unique PLOT ID in COND and in PLOT tables 
 CA_COND_IDs <- CA_COND %>%
@@ -362,27 +383,159 @@ CA_prepost_fire_summary %>%
 # pre only = 49
 #pre and post = 313
 
+CA_prepost_fire_summary %>%
+  distinct(plot_id, status) %>%
+  count(status)
+
+# post only = 106
+# pre only = 49
+# pre and post = 304
+
 ```
 # tree
 ```{r}
-# do we have surviving trees in post-fire surveys?
-
-# to locate a specific tree ID for use the following variables 
-# STATECD, INVYR, UNITCD, COUNTYCD, PLOT, SUBP, TREE
-
-
 #Tree number. A number used to uniquely identify a tree on a subplot. Tree numbers can
 #be used to track trees when PLOT.DESIGNCD is the same between inventories.
 
+# do we have surviving trees in post-fire surveys?
 
-# attach species names from REF_SPECIES to match codes 
+# create unique plot ids for CA_TREE
 
+CA_TREE_IDs <- CA_TREE %>%
+  dplyr::mutate(
+    plot_id = paste(STATECD, UNITCD, COUNTYCD, PLOT, sep = "_")
+  )
+
+#filter CA_TREE to only keep the unique plot ids from CA_PLOT_by_COND
+
+CA_TREE_filtered <- CA_TREE_IDs %>%
+  filter(plot_id %in% CA_PLOT_by_COND$plot_id)
+
+# to locate a specific tree ID, use the following variables 
+# STATECD, INVYR, UNITCD, COUNTYCD, PLOT, SUBP, TREE
+
+# we can look for unique combinations of SUBP and TREE within a plot_id (STATECD, UNITCD, COUNTYCD, PLOT)
+
+# to count how many times a tree was surveyed
+# group by plot_id, SUBP, TREE, and then count the number of INVYR
+
+CA_TREE_resurveys <- CA_TREE_filtered %>% 
+  group_by(plot_id, SUBP, TREE) %>% 
+  summarise(n_surveys = n_distinct(INVYR),
+            survey_years = paste(sort(unique(INVYR)), collapse = ", "),
+            .groups = "drop")
+
+# how many times have trees been resurveyed
+CA_TREE_resurveys %>%
+  count(n_surveys)
+
+#n=1 (1777)
+#n=2  (12611)
+#n=3 (4818)
+
+# lets look at trees in the plots with both pre and post fire 
+# pull the plot_ids for status = pre_and_post from CA_prepost_fire_summary
+
+CA_TREE_prepost_fire <- CA_TREE_filtered %>%
+  semi_join(
+    CA_prepost_fire_summary %>% filter(status == "pre_and_post"),
+    by = "plot_id"
+  ) %>%
+  left_join(
+    CA_prepost_fire_summary %>%
+      filter(status == "pre_and_post") %>%
+      dplyr::select(plot_id, fire_year, status),
+    by = "plot_id"
+  )
+
+# summarize the number of trees per plot 
+CA_TREE_per_plot <- CA_TREE_prepost_fire %>%
+  distinct(plot_id, INVYR, fire_year, status, SUBP, TREE) %>%
+  group_by(plot_id, INVYR, fire_year, status) %>%
+  summarise(
+    n_tree = n(),
+    .groups = "drop"
+  )
+
+
+# both CA_fire_summary and CA_TREE_per_plot have 304 unique plot_id with pre and post fire inventories
+
+# now we want to look at just post-fire plots (where INVYR > fire_year)
+CA_TREE_per_plot_post <- CA_TREE_prepost_fire %>%
+  filter(INVYR > fire_year) %>%
+  mutate(which = "post") %>%
+  distinct(plot_id, INVYR, fire_year, status, SUBP, TREE, which) %>%
+  group_by(plot_id, INVYR, fire_year, status, which) %>%
+  summarise(
+    n_tree = n(),
+    .groups = "drop"
+  )
+
+# 9/304 post-fire plots have less than 10 trees, everything else has 10+ trees
+
+# but remember to look into STATUSCD for live trees (1) and what the species are
+CA_TREE_post_fire_plots <- CA_TREE_prepost_fire %>%
+  filter(INVYR > fire_year)
 
 # get the abundance of live and dead trees per species in each plot 
+CA_TREE_post_fire_plots_tree_status <- CA_TREE_prepost_fire %>%
+  filter(INVYR > fire_year) %>%
+  group_by(plot_id, INVYR, fire_year, SPCD, STATUSCD) %>%
+  summarise(
+    n_tree = n(),
+    .groups = "drop"
+  )
 
 # STATUSCD = 0, STATUSCD = 1 (live), STATUSCD = 2 (dead)
 
+# attach species names from REF_SPECIES to match codes 
+CA_TREE_post_fire_plots_tree_status <- CA_TREE_post_fire_plots_tree_status %>%
+  left_join(
+    REF_SPECIES %>%
+      dplyr::select(SPCD, GENUS, SPECIES),
+    by = "SPCD"
+  )
+
+
 ```
+
+# seedling
+```{r}
+# seedling counts are under TREECOUNT in CA_SEEDLING
+# TREECOUNT is for  (plot × subplot/microplot × species × inventory)
+# in the CA_SEEDLING table, SUBP = microplot since seedlings are inventoried at the microplot within a subplot
+
+# do we have seedling counts in post-fire surveys?
+
+# create unique plot ids for CA_SEEDLING
+CA_SEEDLING_IDs <- CA_SEEDLING %>%
+  dplyr::mutate(
+    plot_id = paste(STATECD, UNITCD, COUNTYCD, PLOT, sep = "_")
+  )
+
+#filter CA_SEEDLING to only keep the unique plot ids from CA_PLOT_by_COND
+
+CA_SEEDLING_filtered <- CA_SEEDLING_IDs %>%
+  filter(plot_id %in% CA_PLOT_by_COND$plot_id)
+
+# lets look at trees in the plots with both pre and post fire 
+# pull the plot_ids for status = pre_and_post from CA_prepost_fire_summary
+
+CA_SEEDLING_prepost_fire <- CA_SEEDLING_filtered %>%
+  semi_join(CA_prepost_fire_summary %>% filter (status== "pre_and_post"), by = "plot_id")
+
+# but again to look at unique trees we need to group by plot_id, SUBP, and TREE
+CA_SEEDLING_per_plot <- CA_SEEDLING_prepost_fire %>%
+  group_by(plot_id, INVYR, SPCD) %>%
+  summarise(
+    n_seedlings = sum(TREECOUNT, na.rm = TRUE),
+    .groups = "drop"
+  )
+
+# attached species names to species codes using REF_SPECIES
+
+```
+
 
 # time since fire
 ```{r}
