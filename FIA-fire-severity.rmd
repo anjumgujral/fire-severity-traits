@@ -273,15 +273,18 @@ CA_PLOT_IDs <- CA_PLOT %>%
 # one row for a specific plot_id, CONID, and disturbance event (combining DSTRBCD and DSTRBYR)
 CA_COND_long <- CA_COND_IDs %>%
   dplyr::select(plot_id, CONDID, FORTYPCD,
-         DSTRBCD1, DSTRBCD2, DSTRBCD3,
-         DSTRBYR1, DSTRBYR2, DSTRBYR3) %>%
+    DSTRBCD1, DSTRBCD2, DSTRBCD3,
+    DSTRBYR1, DSTRBYR2, DSTRBYR3) %>%
   pivot_longer(
     cols = starts_with("DSTR"),
     names_to = c(".value", "event"),
     names_pattern = "(DSTRBCD|DSTRBYR)([1-3])"
   ) %>%
   filter(DSTRBCD %in% c(30, 31, 32)) %>%
-  filter(FORTYPCD %in% c(371, 201, 221, 222, 224, 225, 261, 922)) 
+  filter(FORTYPCD %in% c(371, 201, 221, 222, 224, 225, 261, 922)) %>%
+  mutate(
+    fire_year_severity = paste(DSTRBYR, DSTRBCD, sep = "_")
+  )
 
 # summarize fire history across rows for unique plot_id (one row per plot_id)
 CA_fire_summary <- CA_COND_long %>%
@@ -293,13 +296,32 @@ CA_fire_summary <- CA_COND_long %>%
     fire_types = paste(sort(unique(DSTRBCD)), collapse = ", "), 
     fire_years = paste(sort(unique(DSTRBYR)), collapse = ", "),
     
+    fire_year_severity =
+    paste(unique(fire_year_severity), collapse = ", "),
+    
     multiple_fires = n_distinct(DSTRBYR) > 1, # did fire occur more than once?
     multiple_severity = n_distinct(DSTRBCD) > 1, # are there multiple fire types?
     first_fire_year = min(DSTRBYR, na.rm = TRUE),
     last_fire_year = max(DSTRBYR, na.rm = TRUE),
     .groups = "drop"
   )
-           
+
+# how many plots burned multiple times?
+CA_fire_summary %>% summarise(n_plots_multiple_fires = sum(multiple_fires))
+# 34 plots
+
+# how many plots that burned multipe times have different severities?
+CA_fire_summary %>% filter(multiple_fires) %>% summarise(n_plots_multiple_fire_and_severity = sum(multiple_severity))
+# 10 plots
+
+# how many plots that burned once have multiple severities within a plot?
+CA_fire_summary %>%
+  filter(!multiple_fires) %>%
+  summarise(
+    n_plots_single_fire_multiple_severity =
+      sum(multiple_severity))
+# 9 plots
+
 CA_burned_PLOT_IDs <- CA_fire_summary %>% 
   distinct(plot_id)
 
@@ -382,15 +404,6 @@ CA_PLOT %>%
 length(unique(CA_COND_IDs$plot_id)) # 22589
 length(unique(CA_PLOT_IDs$plot_id)) # 22589
 
-# how many plots burned multiple times?
-
-# how many plots that burned multipe times have different severities?
-
-# how many plots that burned once have multiple severities within a plot?
-
-
-# create a column for fire_year_severity in CA_fire_summary
-
 ```
 # tree
 ```{r}
@@ -400,25 +413,22 @@ length(unique(CA_PLOT_IDs$plot_id)) # 22589
 # do we have surviving trees in post-fire surveys?
 
 # create unique plot ids for CA_TREE
-
 CA_TREE_IDs <- CA_TREE %>%
   dplyr::mutate(
     plot_id = paste(STATECD, UNITCD, COUNTYCD, PLOT, sep = "_")
   )
 
-#filter CA_TREE to only keep the unique plot ids from CA_PLOT_by_COND
-
+#filter CA_TREE to only keep the unique plot ids from CA_PLOT_by_COND (our fire only plots in our focal forest types)
 CA_TREE_filtered <- CA_TREE_IDs %>%
   filter(plot_id %in% CA_PLOT_by_COND$plot_id)
 
 # to locate a specific tree ID, use the following variables 
 # STATECD, INVYR, UNITCD, COUNTYCD, PLOT, SUBP, TREE
-
+# TREE is unique to SUBP not plot_id
 # we can look for unique combinations of SUBP and TREE within a plot_id (STATECD, UNITCD, COUNTYCD, PLOT)
 
 # to count how many times a tree was surveyed
 # group by plot_id, SUBP, TREE, and then count the number of INVYR
-
 CA_TREE_resurveys <- CA_TREE_filtered %>% 
   group_by(plot_id, SUBP, TREE) %>% 
   summarise(n_surveys = n_distinct(INVYR),
@@ -430,10 +440,13 @@ CA_TREE_resurveys %>%
   count(n_surveys)
 
 #n=1 (1777)
-#n=2  (12611)
+#n=2 (12611)
 #n=3 (4818)
 
-# lets look at trees in the plots with both pre and post fire 
+# should i make a unique tree indentifies too?
+#tree_id = paste(plot_id, SUBP, TREE, sep = "_") # also including INVYR?
+
+# lets look at trees in the plots with both pre and post fire surveys
 # pull the plot_ids for status = pre_and_post from CA_prepost_fire_summary
 
 CA_TREE_prepost_fire <- CA_TREE_filtered %>%
@@ -448,7 +461,7 @@ CA_TREE_prepost_fire <- CA_TREE_filtered %>%
     by = "plot_id"
   )
 
-# summarize the number of trees per plot (consolidating SUBP)
+# summarize the number of trees per plot (ignore subplots?)
 CA_TREE_per_plot <- CA_TREE_prepost_fire %>%
   distinct(plot_id, INVYR, fire_year, status, SUBP, TREE) %>%
   group_by(plot_id, INVYR, fire_year, status) %>%
@@ -517,9 +530,18 @@ CA_TREE_post_fire_species_summary <- CA_TREE_prepost_fire %>%
   ) %>%
   group_by(plot_id, INVYR, fire_year, SPCD) %>%
   summarise(
-    n_live_trees_species = n(),
+    n_live_trees = n(),
     .groups = "drop"
   )
+# number of live species per plot (post-fire plots)
+CA_TREE_post_fire_species_summary %>%
+  group_by(plot_id) %>%
+  summarise(n_species = n_distinct(SPCD)) %>%
+  ggplot(aes(x = n_species)) +
+  geom_histogram(binwidth = 1, fill = "steelblue", color = "white") +
+  theme_bw() +
+  labs(x = "Number of live species per plot", y = "Number of plots")
+
 
 CA_TREE_post_fire_species_summary <- CA_TREE_post_fire_species_summary %>%
   left_join(
@@ -531,9 +553,25 @@ CA_TREE_post_fire_species_summary <- CA_TREE_post_fire_species_summary %>%
 CA_TREE_post_fire_species_summary <- CA_TREE_post_fire_species_summary %>%
   mutate(species = paste(GENUS,SPECIES, sep = "_"))
 
-# do we also want to know what percentage of trees per species died between pre and post fire surveys?
-
-
+# abundance of each species per plot (top 10 most abundant species)
+ggplot(
+  CA_TREE_post_fire_species_summary %>%
+    group_by(species, plot_id) %>%
+    summarise(n_live_trees = sum(n_live_trees), .groups = "drop") %>%
+    group_by(species) %>%
+    summarise(mean_per_plot = mean(n_live_trees), .groups = "drop") %>%
+    slice_max(mean_per_plot, n = 20),
+  aes(x = reorder(species, mean_per_plot),
+      y = mean_per_plot)
+) +
+  geom_col(fill = "steelblue") +
+  coord_flip() +
+  labs(
+    x = "species",
+    y = "average # live trees per plot",
+    title = "average abundance of species per plot"
+  ) +
+  theme_bw()
 ```
 
 # seedling
