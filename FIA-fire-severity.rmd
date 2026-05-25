@@ -514,9 +514,10 @@ CA_TREE_post_fire_plots <- CA_TREE_prepost_fire %>%
 # number of trees per plot (post-fire plots)
 CA_TREE_per_plot_post <- CA_TREE_post_fire_plots %>%
   mutate(which = "post") %>%
-  distinct(plot_id, INVYR, fire_year, status, SUBP, TREE, which) %>%
   group_by(plot_id, INVYR, fire_year, status, which) %>%
-  summarise(n_tree = n(), .groups = "drop")
+  summarise(
+    n_tree = n_distinct(SUBP, TREE),
+    .groups = "drop")
 # 9/304 post-fire plots have less than 10 trees, everything else has 10+ trees
 
 # get the abundance of live and dead trees per species in each plot 
@@ -670,6 +671,57 @@ CA_TREE_mortality <- CA_TREE_transitions %>%
 
 summary(CA_TREE_mortality$mortality_rate)
 hist(CA_TREE_mortality$mortality_rate)
+
+# check for any new trees in post fire surveys
+
+# trees appearing post-fire but absent pre-fire
+CA_TREE_new_trees <- CA_TREE_post_fire_trees %>%
+  anti_join(
+    CA_TREE_transitions %>%
+      distinct(plot_id, SUBP, fire_year, TREE),
+    by = c("plot_id", "SUBP", "fire_year", "TREE")
+  )
+
+CA_TREE_new_trees %>%
+  summarise(
+    total_new_recruits = n()
+  )
+# 1552 new post-fire recruits in CA_TREE
+
+CA_TREE_new_trees %>%
+  summarise(
+    total_new_recruits = n_distinct(plot_id, SUBP, TREE, fire_year)
+  )
+
+# recruits per plot
+CA_TREE_new_recruits_per_plot <- CA_TREE_new_trees %>%
+  group_by(plot_id, fire_year, post_INVYR) %>%
+  summarise(
+    n_new_recruits = n_distinct(SUBP, TREE),
+    .groups = "drop"
+  )
+
+summary(CA_TREE_new_recruits_per_plot$n_new_recruits)
+
+CA_TREE_recruitment <- CA_TREE_new_recruits_per_plot %>%
+  left_join(
+    CA_TREE_per_plot_post %>%
+      dplyr::select(
+        plot_id,
+        fire_year,
+        post_INVYR = INVYR,
+        n_tree
+      ),
+    by = c("plot_id", "fire_year", "post_INVYR")
+  ) %>%
+  mutate(
+    recruit_prop = n_new_recruits / n_tree
+  )
+
+CA_TREE_recruitment %>%
+  filter(recruit_prop == 1)
+
+# 7 plots have only new trees
 ```
 
 ## seedling
