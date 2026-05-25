@@ -53,6 +53,15 @@ ID_TREE <- read.csv("./data/FIA/ID_TREE.csv")
 MT_TREE <- read.csv("./data/FIA/MT_TREE.csv")
 
 CA_SEEDLING <- read.csv("./data/FIA/CA_SEEDLING.csv")
+CO_SEEDLING <- read.csv("./data/FIA/CO_SEEDLING.csv")
+NV_SEEDLING <- read.csv("./data/FIA/NV_SEEDLING.csv")
+OR_SEEDLING <- read.csv("./data/FIA/OR_SEEDLING.csv")
+UT_SEEDLING <- read.csv("./data/FIA/UT_SEEDLING.csv")
+WA_SEEDLING <- read.csv("./data/FIA/WA_SEEDLING.csv")
+WY_SEEDLING <- read.csv("./data/FIA/WY_SEEDLING.csv")
+ID_SEEDLING <- read.csv("./data/FIA/ID_SEEDLING.csv")
+MT_SEEDLING <- read.csv("./data/FIA/MT_SEEDLING.csv")
+
 
 # Load in reference species names
 REF_SPECIES <- read.csv("./data/FIA/REF_SPECIES.csv")
@@ -253,8 +262,8 @@ CA_PLOT_IDs %>%
 # trying it 3 different ways there are between 22-33 plots with pre and post fire surveys
 
 ```
-
-# unique plot ids
+# CA
+## fire only plots
 ```{r}
 # create a unique PLOT ID in COND and in PLOT tables 
 CA_COND_IDs <- CA_COND %>%
@@ -405,7 +414,8 @@ length(unique(CA_COND_IDs$plot_id)) # 22589
 length(unique(CA_PLOT_IDs$plot_id)) # 22589
 
 ```
-# tree
+
+## tree
 ```{r}
 #Tree number. A number used to uniquely identify a tree on a subplot. Tree numbers can be used to track trees when PLOT.DESIGNCD or DESIGNCD is the same between inventories
 
@@ -447,8 +457,32 @@ CA_TREE_resurveys %>%
 #n=2 (12611)
 #n=3 (4818)
 
-# maybe make a unique tree identifier too?
-#tree_id = paste(plot_id, SUBP, TREE, sep = "_") # also including INVYR?
+# is TREE our unique identifier of TREE ?
+CA_TREE_filtered %>%
+  group_by(TREE) %>%
+  summarise(
+    n_plots = n_distinct(plot_id),
+    .groups = "drop"
+  ) %>%
+  filter(n_plots > 1) %>%
+  summarise(
+    n_trees_multiple_plots = n()
+  )
+# 299 trees are found in multiple plots 
+
+CA_TREE_filtered %>%
+  summarise(
+    n_unique_trees = n_distinct(plot_id, SUBP, TREE)
+  )
+# number of unique trees 19206
+
+# Tree number notes:
+# TREE uniquely identifies a tree within a subplot (SUBP),
+# so full tree identity is: plot_id + SUBP + TREE
+
+# unique tree identity is plot_id + SUBP + TREE
+# make a unique tree identifier too? or use plot_id + SUBP + TREE everytime
+#tree_id = paste(plot_id, SUBP, TREE, sep = "_") 
 
 # lets look at trees in the plots with both pre and post fire surveys
 # pull the plot_ids for status = pre_and_post from CA_prepost_fire_summary and the fire year the post-fire plot is associated with
@@ -470,19 +504,33 @@ CA_prepost_fire_summary %>%
   summarise(n_plots = n_distinct(plot_id)) #304
 length(unique(CA_TREE_prepost_fire$plot_id)) #304
 
+
 # both CA_fire_summary and CA_TREE_prepost_fire have 304 unique plot_id with pre and post fire inventories
 
 # now we want to look at just post-fire plots (where INVYR > fire_year)
 CA_TREE_post_fire_plots <- CA_TREE_prepost_fire %>%
   filter(INVYR > fire_year)
 
+# number of trees per plot (post-fire plots)
+CA_TREE_per_plot_post <- CA_TREE_post_fire_plots %>%
+  mutate(which = "post") %>%
+  distinct(plot_id, INVYR, fire_year, status, SUBP, TREE, which) %>%
+  group_by(plot_id, INVYR, fire_year, status, which) %>%
+  summarise(n_tree = n(), .groups = "drop")
+# 9/304 post-fire plots have less than 10 trees, everything else has 10+ trees
+
 # get the abundance of live and dead trees per species in each plot 
 CA_TREE_post_fire_plots_tree_status <- CA_TREE_post_fire_plots %>%
   group_by(plot_id, INVYR, fire_year, SPCD, STATUSCD) %>%
-  summarise(n_tree = n(), .groups = "drop") %>%
-  left_join(REF_SPECIES %>% dplyr::select(SPCD, GENUS, SPECIES), 
-            by = "SPCD")
-
+  summarise(
+    n_tree = n_distinct(SUBP, TREE),
+    .groups = "drop"
+  ) %>%
+  left_join(
+    REF_SPECIES %>%
+      dplyr::select(SPCD, GENUS, SPECIES),
+    by = "SPCD"
+  )
 # STATUSCD = 0 (not present), STATUSCD = 1 (live), STATUSCD = 2 (dead)
 
 # number of species with STATUSCD = 1 in post-fire plots
@@ -491,15 +539,16 @@ CA_TREE_post_fire_plot_summary <- CA_TREE_post_fire_plots %>%
   group_by(plot_id, INVYR, fire_year) %>%
   summarise(
     n_live_species = n_distinct(SPCD),
-    n_live_trees = n(),
-    .groups = "drop")
+    n_live_trees = n_distinct(SUBP, TREE),
+    .groups = "drop"
+  )
 
 # number of individuals (live) per species per plot
 CA_TREE_post_fire_species_summary <- CA_TREE_post_fire_plots %>%
   filter(STATUSCD == 1) %>%
   group_by(plot_id, INVYR, fire_year, SPCD) %>%
   summarise(
-    n_live_trees = n(),
+    n_live_trees = n_distinct(SUBP, TREE),
     .groups = "drop"
   ) %>%
   left_join(
@@ -542,10 +591,15 @@ ggplot(
 
 # boxplots of tree abundance per species per plot
 CA_TREE_post_fire_plots %>%
+  filter(STATUSCD == 1) %>%
   group_by(plot_id, SPCD) %>%
-  summarise(n_trees = n(), .groups = "drop") %>%
+  summarise(
+    n_trees = n_distinct(SUBP, TREE),
+    .groups = "drop"
+  ) %>%
   left_join(
-    REF_SPECIES %>% dplyr:: select(SPCD, GENUS, SPECIES),
+    REF_SPECIES %>%
+      dplyr::select(SPCD, GENUS, SPECIES),
     by = "SPCD"
   ) %>%
   mutate(species = paste(GENUS, SPECIES, sep = "_")) %>%
@@ -563,155 +617,62 @@ CA_TREE_post_fire_plots %>%
   theme_bw()
 
 
+## tree transitions and mortality rates
 
-### this was not particularly useful
-# number of trees per plot (post-fire plots)
-#CA_TREE_per_plot_post <- CA_TREE_post_fire_plots %>%
-  #mutate(which = "post") %>%
-  #distinct(plot_id, INVYR, fire_year, status, SUBP, TREE, which) %>%
-  #group_by(plot_id, INVYR, fire_year, status, which) %>%
-  #summarise(n_tree = n(), .groups = "drop")
-# 9/304 post-fire plots have less than 10 trees, everything else has 10+ trees
+# closest PRE-fire observation for each TREE
+CA_TREE_pre_fire_trees <- CA_TREE_prepost_fire %>%
+  filter(INVYR < fire_year) %>%
+  group_by(plot_id, SUBP, TREE, fire_year) %>%
+  arrange(desc(INVYR), .by_group = TRUE) %>%
+  slice(1) %>%
+  ungroup() %>%
+  rename(
+    pre_INVYR = INVYR,
+    pre_STATUSCD = STATUSCD
+  )
 
+# closest POST-fire observation for each TREE
+CA_TREE_post_fire_trees <- CA_TREE_prepost_fire %>%
+  filter(INVYR > fire_year) %>%
+  group_by(plot_id, SUBP, TREE, fire_year) %>%
+  arrange(INVYR, .by_group = TRUE) %>%
+  slice(1) %>%
+  ungroup() %>%
+  rename(
+    post_INVYR = INVYR,
+    post_STATUSCD = STATUSCD
+  )
+
+# join pre and post observations
+CA_TREE_transitions <- CA_TREE_pre_fire_trees %>%
+  inner_join(
+    CA_TREE_post_fire_trees,
+    by = c("plot_id", "SUBP", "TREE", "fire_year"),
+    suffix = c("_pre", "_post")
+  )
+
+# mortality indicators
+CA_TREE_transitions <- CA_TREE_transitions %>%
+  mutate(
+    alive_pre = pre_STATUSCD == 1,
+    dead_post = pre_STATUSCD == 1 & post_STATUSCD == 2
+  )
+
+# plot-level mortality
+CA_TREE_mortality <- CA_TREE_transitions %>%
+  group_by(plot_id, fire_year) %>%
+  summarise(
+    n_alive_pre = sum(alive_pre, na.rm = TRUE),
+    n_dead_post = sum(dead_post, na.rm = TRUE),
+    mortality_rate = n_dead_post / n_alive_pre,
+    .groups = "drop"
+  )
+
+summary(CA_TREE_mortality$mortality_rate)
+hist(CA_TREE_mortality$mortality_rate)
 ```
 
-## SUBP
-```{r}
-# Tree number notes:
-# TREE uniquely identifies a tree within a subplot (SUBP),
-# so full tree identity is: plot_id + SUBP + TREE
-
-# before looking into tree level data, confirm design codes are consistent
-n_distinct(CA_PLOT_by_COND$DESIGNCD) # one design code across plots
-unique(CA_PLOT_by_COND$DESIGNCD)     # DESIGNCD = 501
-
-# all plots have same design code so we can proceed
-
-# Create plot_id for tree data
-
-CA_TREE_IDs <- CA_TREE %>%
-  dplyr::mutate(
-    plot_id = paste(STATECD, UNITCD, COUNTYCD, PLOT, sep = "_")
-  )
-
-# filter to fire plots
-CA_TREE_filtered <- CA_TREE_IDs %>%
-  filter(plot_id %in% CA_PLOT_by_COND$plot_id)
-
-# unique tree identity is plot_id + SUBP + TREE
-CA_TREE_tree_level <- CA_TREE_filtered %>%
-  distinct(plot_id, SUBP, TREE, INVYR, .keep_all = TRUE)
-
-CA_TREE_resurveys <- CA_TREE_tree_level %>%
-  group_by(plot_id, SUBP, TREE) %>%
-  summarise(
-    n_surveys = n_distinct(INVYR),
-    survey_years = paste(sort(unique(INVYR)), collapse = ", "),
-    .groups = "drop"
-  )
-
-CA_TREE_resurveys %>%
-  count(n_surveys)
-
-# n=1 (1777)
-# n=2 (12611)
-# n=3 (4818)
-
-
-CA_TREE_prepost_fire <- CA_TREE_filtered %>%
-  semi_join(
-    CA_prepost_fire_summary %>% filter(status == "pre_and_post"),
-    by = "plot_id"
-  ) %>%
-  left_join(
-    CA_prepost_fire_summary %>%
-      filter(status == "pre_and_post") %>%
-      dplyr::select(plot_id, fire_year, status),
-    by = "plot_id"
-  )
-
-# post-fire subset (still tree-level, but now includes fire structure)
-CA_TREE_post_fire_plots <- CA_TREE_prepost_fire %>%
-  filter(INVYR > fire_year)
-
-CA_TREE_post_fire_tree_counts <- CA_TREE_post_fire_plots %>%
-  distinct(plot_id, SUBP, TREE, INVYR, fire_year, status) %>%
-  group_by(plot_id, INVYR, fire_year, status) %>%
-  summarise(
-    n_tree = n_distinct(paste(SUBP, TREE)),
-    .groups = "drop"
-  )
-
-
-CA_TREE_post_fire_plots_tree_status <- CA_TREE_post_fire_plots %>%
-  group_by(plot_id, INVYR, fire_year, SPCD, STATUSCD) %>%
-  summarise(
-    n_tree = n_distinct(paste(SUBP, TREE)),
-    .groups = "drop"
-  ) %>%
-  left_join(
-    REF_SPECIES %>% dplyr::select(SPCD, GENUS, SPECIES),
-    by = "SPCD"
-  )
-
-# STATUSCD = 0, 1 (live), 2 (dead)
-
-CA_TREE_post_fire_plot_summary <- CA_TREE_post_fire_plots %>%
-  filter(STATUSCD == 1) %>%
-  distinct(plot_id, SUBP, TREE, SPCD, INVYR, fire_year) %>%
-  group_by(plot_id, INVYR, fire_year) %>%
-  summarise(
-    n_live_species = n_distinct(SPCD),
-    n_live_trees = n_distinct(paste(SUBP, TREE)),
-    .groups = "drop"
-  )
-
-
-CA_TREE_post_fire_species_summary <- CA_TREE_post_fire_plots %>%
-  filter(STATUSCD == 1) %>%
-  distinct(plot_id, SUBP, TREE, SPCD, INVYR, fire_year) %>%
-  group_by(plot_id, INVYR, fire_year, SPCD) %>%
-  summarise(
-    n_live_trees = n_distinct(paste(SUBP, TREE)),
-    .groups = "drop"
-  ) %>%
-  left_join(
-    REF_SPECIES %>% dplyr::select(SPCD, GENUS, SPECIES),
-    by = "SPCD"
-  ) %>%
-  mutate(species = paste(GENUS, SPECIES, sep = "_"))
-
-CA_TREE_post_fire_species_summary %>%
-  group_by(plot_id) %>%
-  summarise(n_species = n_distinct(SPCD)) %>%
-  ggplot(aes(x = n_species)) +
-  geom_histogram(binwidth = 1, fill = "steelblue", color = "white") +
-  theme_bw() +
-  labs(x = "Number of live species per plot", y = "Number of plots")
-
-ggplot(
-  CA_TREE_post_fire_species_summary %>%
-    group_by(species, plot_id) %>%
-    summarise(n_live_trees = sum(n_live_trees), .groups = "drop") %>%
-    group_by(species) %>%
-    summarise(mean_per_plot = mean(n_live_trees), .groups = "drop") %>%
-    slice_max(mean_per_plot, n = 20),
-  aes(x = reorder(species, mean_per_plot),
-      y = mean_per_plot)
-) +
-  geom_col(fill = "steelblue") +
-  coord_flip() +
-  labs(
-    x = "species",
-    y = "average # live trees per plot",
-    title = "average abundance of species per plot"
-  ) +
-  theme_bw()
-
-# running with SUBP + TREE combinations doesn't change output 
-```
-
-# seedling
+## seedling
 ```{r}
 # is there recruitment in post-fire surveys?
 
@@ -744,9 +705,18 @@ CA_SEEDLING_prepost_fire <- CA_SEEDLING_filtered %>%
 CA_SEEDLING_post_fire_plots <- CA_SEEDLING_prepost_fire %>%
   filter(INVYR > fire_year)
 
+
 length(unique(CA_SEEDLING_post_fire_plots$plot_id)) # 237
 length(unique(CA_TREE_post_fire_plots$plot_id)) # 304
 # 237 unique plots (why is this different from the 304 for the TREE analysis ??)
+
+## To qualify for counting, conifer seedlings must be at least 6 inches tall and hardwood seedlings must be at least 12 inches tall (which is maybe why that column is blank on the table).
+
+# how many post fire plots have TREECOUNT = NA (no seedlings recorded)
+CA_SEEDLING_post_fire_plots %>%
+  filter(is.na(TREECOUNT)) %>%
+  summarise(n_plot_ids = n_distinct(plot_id))
+# 0 / 237 have no seedlings 
 
 # number of seedlings per plot (aggregated across SUBP/microplot)
 CA_SEEDLING_per_plot <- CA_SEEDLING_post_fire_plots %>%
@@ -779,7 +749,7 @@ CA_SEEDLING_species_summary %>%
     y = "Number of plots"
   )
 
-# number of species of seedlings per plot 
+# number of seedling species per plot 
 CA_SEEDLING_plot_summary <- CA_SEEDLING_post_fire_plots %>%
   group_by(plot_id, INVYR, fire_year) %>%
   summarise(
@@ -838,7 +808,71 @@ CA_SEEDLING_species_summary %>%
   theme_bw()
 
 ```
+## seedling expanded
+```{r}
+# expand seedling analysis to look at trees in plots with both pre and post fire and just post-fire
+# pull the plot_ids for status = pre_and_post, and post_only from CA_prepost_fire_summary
 
+CA_SEEDLING_prepost_fire <- CA_SEEDLING_filtered %>%
+  semi_join(CA_prepost_fire_summary %>% filter(status %in% c("pre_and_post", "post_only")),
+    by = "plot_id") %>%
+  left_join(CA_prepost_fire_summary %>%
+      filter(status %in% c("pre_and_post", "post_only")) %>%
+      dplyr::select(plot_id, fire_year, status),
+    by = "plot_id")
+
+# filter to post-fire plots only
+CA_SEEDLING_post_fire_plots <- CA_SEEDLING_prepost_fire %>%
+  filter(INVYR > fire_year)
+
+length(unique(CA_SEEDLING_post_fire_plots$plot_id)) # 313
+# 313 unique plots instead of the 234 in the pre_and_post analysis above
+
+# how many post fire plots have TREECOUNT = NA (no seedlings recorded)
+CA_SEEDLING_post_fire_plots %>%
+  filter(is.na(TREECOUNT)) %>%
+  summarise(n_plot_ids = n_distinct(plot_id))
+# 16 / 237 have no seedlings 
+
+# number of seedlings per plot (aggregated across SUBP/microplot)
+CA_SEEDLING_per_plot <- CA_SEEDLING_post_fire_plots %>%
+  group_by(plot_id, INVYR, fire_year) %>%
+  summarise(
+    n_seedlings = sum(TREECOUNT, na.rm = TRUE),
+    .groups = "drop"
+  )
+
+hist(CA_SEEDLING_per_plot$n_seedlings, breaks=30)
+summary(CA_SEEDLING_per_plot$n_seedlings)
+
+# slightly less seedlings per plot when adding ~100 more plots that are post_only 
+# median = 6, mean = 17
+
+# median is a more useful metric for seedling counts that mean because seedlings counts are highly skewed and median values give us a better approximation of the most typical plot
+
+# number of species of seedlings per plot 
+CA_SEEDLING_plot_summary <- CA_SEEDLING_post_fire_plots %>%
+  group_by(plot_id, INVYR, fire_year) %>%
+  summarise(
+    n_seedling_species = n_distinct(SPCD),
+    n_seedlings = sum(TREECOUNT, na.rm = TRUE),
+    .groups = "drop"
+  )
+
+# number of individuals per species per plot
+CA_SEEDLING_species_summary <- CA_SEEDLING_post_fire_plots %>%
+  group_by(plot_id, INVYR, fire_year, SPCD) %>%
+  summarise(n_seedlings = sum(TREECOUNT, na.rm = TRUE),
+    .groups = "drop") %>%
+  left_join(REF_SPECIES %>% dplyr::select(SPCD, GENUS, SPECIES),
+    by = "SPCD") %>%
+  mutate(species = paste(GENUS, SPECIES, sep = "_"))
+```
+
+#post-fire mortality
+```{r}
+
+```
 
 # time since fire
 ```{r}
@@ -863,206 +897,949 @@ CA_PLOT_time_since_fire <- CA_PLOT_by_COND %>%
 hist(CA_PLOT_time_since_fire$time_since_fire)
 ```
 
-#expand states
-##OR
+# expand states
+# OR
+### fire only plots
 ```{r}
-OR_COND_filtered <- OR_COND %>%
-  filter(if_any(
-    c(DSTRBCD1, DSTRBCD2, DSTRBCD3),
-    ~ .x %in% c(30, 31, 32)
-  )) %>%
-  filter(FORTYPCD %in% c(371, 201, 221, 222, 224, 225, 261, 922))
-
-OR_COND %>%
-  dplyr::group_by(PLT_CN) %>%
-  dplyr::summarise(
-    problem = dplyr::n_distinct(
-      paste(DSTRBCD1, DSTRBCD2, DSTRBCD3,
-            DSTRBYR1, DSTRBYR2, DSTRBYR3)
-    ) > 1,
-    .groups = "drop"
-  ) %>%
-  dplyr::summarise(any_problem = any(problem))
-
-
-OR_COND %>%
-  group_by(PLT_CN) %>%
-  summarise(
-    n_profiles = n_distinct(
-      paste(DSTRBCD1, DSTRBCD2, DSTRBCD3,
-            DSTRBYR1, DSTRBYR2, DSTRBYR3)
-    ),
-    .groups = "drop"
-  ) %>%
-  filter(n_profiles > 1) %>%
-  nrow()
-
-# 5710 plots have differing DSTRBCD between rows of the same PLT_CN in COND table
-
-
-OR_COND_dominant <- OR_COND_filtered %>%
-  group_by(PLT_CN) %>%
-  slice_max(CONDPROP_UNADJ, n = 1, with_ties = FALSE) %>%
-  ungroup()
-
-OR_COND_summary <- OR_COND_dominant %>%
-  dplyr::select(
-    PLT_CN,
-    CONDPROP_UNADJ,
-    FORTYPCD,
-    DSTRBCD1, DSTRBYR1,
-    DSTRBCD2, DSTRBYR2,
-    DSTRBCD3, DSTRBYR3
-  )
-
-# attach condition summary to PLOT table (with resurveys) to get the condition history for that plot. the same history will be attached to each resurvey for the plot
-OR_burned_PLT_CN <- OR_COND_summary %>%
-  distinct(PLT_CN)
-
-OR_PLOT_filtered <- OR_PLOT %>%
-  semi_join(OR_burned_PLT_CN, by = c("CN" = "PLT_CN"))
-
-OR_PLOT_by_COND <- OR_PLOT_filtered %>%
-  left_join(OR_COND_summary, by = c("CN" = "PLT_CN"))
-
-```
-
-```{r}
-# number of revisits
-OR_PLOT_pairs <- OR_PLOT_by_COND %>%
-  filter(!is.na(PREV_PLT_CN)) %>%
-  left_join(
-    OR_PLOT_by_COND %>% dplyr::select(CN, INVYR),
-    by = c("PREV_PLT_CN" = "CN"),
-    suffix = c("_current", "_previous")
-  )
-
-OR_fires <- OR_PLOT_by_COND %>%
-  tidyr::pivot_longer(
-    cols = c(DSTRBYR1, DSTRBYR2, DSTRBYR3),
-    names_to = "fire_slot",
-    values_to = "fire_year"
-  ) %>%
-  filter(!is.na(fire_year))
-
-OR_fire_events <- OR_PLOT_pairs %>%
-  left_join(OR_fires, by = "CN")
-
-OR_fire_events <- OR_fire_events %>%
-  mutate(
-    pre_fire  = INVYR_previous < fire_year,
-    post_fire = INVYR_current > fire_year
-  ) %>%
-  filter(pre_fire & post_fire)
-
-# 15 plots with pre and post fire surveys 
-
-# create a unique plot ID 
-OR_PLOT_IDs <- OR_PLOT_by_COND %>%
+#create a unique PLOT ID in COND and in PLOT tables 
+OR_COND_IDs <- OR_COND %>%
   dplyr::mutate(
     plot_id = paste(STATECD, UNITCD, COUNTYCD, PLOT, sep = "_")
   )
-OR_PLOT_IDs %>%
-  dplyr::count(plot_id, name = "n_resurveys") %>%
-  dplyr::mutate(group = ifelse(n_resurveys == 1, "n = 1", "n > 1")) %>%
-  dplyr::count(group)
-
-# n= 1 (574) ; n =2 (21)
-
-OR_PLOT_time_since_fire <- OR_PLOT_by_COND %>%
-  distinct(CN, INVYR, PREV_PLT_CN, .keep_all = TRUE) %>%
-  tidyr::pivot_longer(
-    cols = c(DSTRBYR1, DSTRBYR2, DSTRBYR3),
-    values_to = "fire_year"
-  ) %>%
-  mutate(
-    fire_year = ifelse(fire_year == 9999, NA, fire_year)
-  ) %>%
-  filter(!is.na(fire_year)) %>%
-  mutate(
-    time_since_fire = INVYR - fire_year,
-    pre_fire  = time_since_fire < 0,
-    post_fire = time_since_fire > 0
+OR_PLOT_IDs <- OR_PLOT %>%
+  dplyr::mutate(
+    plot_id = paste(STATECD, UNITCD, COUNTYCD, PLOT, sep = "_")
   )
 
-hist(OR_PLOT_time_since_fire$time_since_fire[
-  !OR_PLOT_time_since_fire$time_since_fire %in% c(-1, 242)
-]) # drop outliers -1 and 242
+# collapse information from multiple CONDIDs associated with each plot to avoid many-to-many mapping
+# and then filter by fire and forest type  
 
-```
-
-##WA
-```{r}
-WA_COND_filtered <- WA_COND %>%
-  filter(if_any(
-    c(DSTRBCD1, DSTRBCD2, DSTRBCD3),
-    ~ .x %in% c(30, 31, 32)
-  )) %>%
-  filter(FORTYPCD %in% c(371, 201, 221, 222, 224, 225, 261, 922))
-
-WA_COND %>%
-  dplyr::group_by(PLT_CN) %>%
-  dplyr::summarise(
-    problem = dplyr::n_distinct(
-      paste(DSTRBCD1, DSTRBCD2, DSTRBCD3,
-            DSTRBYR1, DSTRBYR2, DSTRBYR3)
-    ) > 1,
-    .groups = "drop"
+#plot_id → multiple CONDIDs → each CONDID has up to 3 disturbance codes and years
+# one row for a specific plot_id, CONID, and disturbance event (combining DSTRBCD and DSTRBYR)
+OR_COND_long <- OR_COND_IDs %>%
+  dplyr::select(plot_id, CONDID, FORTYPCD,
+    DSTRBCD1, DSTRBCD2, DSTRBCD3,
+    DSTRBYR1, DSTRBYR2, DSTRBYR3) %>%
+  pivot_longer(
+    cols = starts_with("DSTR"),
+    names_to = c(".value", "event"),
+    names_pattern = "(DSTRBCD|DSTRBYR)([1-3])"
   ) %>%
-  dplyr::summarise(any_problem = any(problem))
+  filter(DSTRBCD %in% c(30, 31, 32)) %>%
+  filter(FORTYPCD %in% c(371, 201, 221, 222, 224, 225, 261, 922)) %>%
+  mutate(
+    fire_year_severity = paste(DSTRBYR, DSTRBCD, sep = "_")
+  )
 
-
-WA_COND %>%
-  group_by(PLT_CN) %>%
+# summarize fire history across rows for unique plot_id (one row per plot_id)
+OR_fire_summary <- OR_COND_long %>%
+  group_by(plot_id) %>%
   summarise(
-    n_profiles = n_distinct(
-      paste(DSTRBCD1, DSTRBCD2, DSTRBCD3,
-            DSTRBYR1, DSTRBYR2, DSTRBYR3)
-    ),
+    n_fire_events = n_distinct(DSTRBYR), # number of distinct fire years per plot
+    
+    # this just collapses all codes into a list but not necessarily relative to year
+    fire_types = paste(sort(unique(DSTRBCD)), collapse = ", "), 
+    fire_years = paste(sort(unique(DSTRBYR)), collapse = ", "),
+    
+    fire_year_severity =
+    paste(unique(fire_year_severity), collapse = ", "),
+    
+    multiple_fires = n_distinct(DSTRBYR) > 1, # did fire occur more than once?
+    multiple_severity = n_distinct(DSTRBCD) > 1, # are there multiple fire types?
+    first_fire_year = min(DSTRBYR, na.rm = TRUE),
+    last_fire_year = max(DSTRBYR, na.rm = TRUE),
     .groups = "drop"
-  ) %>%
-  filter(n_profiles > 1) %>%
-  nrow()
-
-# 3828 plots have differing DSTRBCD between rows of the same PLT_CN in COND table
-
-WA_COND_dominant <- WA_COND_filtered %>%
-  group_by(PLT_CN) %>%
-  slice_max(CONDPROP_UNADJ, n = 1, with_ties = FALSE) %>%
-  ungroup()
-
-WA_COND_summary <- WA_COND_dominant %>%
-  dplyr::select(
-    PLT_CN,
-    CONDPROP_UNADJ,
-    FORTYPCD,
-    DSTRBCD1, DSTRBYR1,
-    DSTRBCD2, DSTRBYR2,
-    DSTRBCD3, DSTRBYR3
   )
 
-WA_burned_PLT_CN <- WA_COND_summary %>%
-  distinct(PLT_CN)
+# how many plots burned multiple times?
+OR_fire_summary %>% summarise(n_plots_multiple_fires = sum(multiple_fires))
+# 20 plots
 
-WA_PLOT_filtered <- WA_PLOT %>%
-  semi_join(WA_burned_PLT_CN, by = c("CN" = "PLT_CN"))
+# how many plots that burned multipe times have different severities?
+OR_fire_summary %>% filter(multiple_fires) %>% summarise(n_plots_multiple_fire_and_severity = sum(multiple_severity))
+# 11 plots
 
-WA_PLOT_by_COND <- WA_PLOT_filtered %>%
-  left_join(WA_COND_summary, by = c("CN" = "PLT_CN"))
+# how many plots that burned once have multiple severities within a plot?
+OR_fire_summary %>%
+  filter(!multiple_fires) %>%
+  summarise(
+    n_plots_single_fire_multiple_severity =
+      sum(multiple_severity))
+# 9 plots
+
+OR_burned_PLOT_IDs <- OR_fire_summary %>% 
+  distinct(plot_id)
+
+# merge COND and PLOT by this unique ID 
+OR_PLOT_by_COND <- OR_PLOT_IDs %>%
+  semi_join(OR_burned_PLOT_IDs, by = "plot_id") %>%  #keep only plot_ids with at least one fire 
+  left_join(OR_fire_summary, by = "plot_id")  #add fire summary to each plot, should be one-to-many mapping
+
+#for each unique plot, count how many unique inventory years (INVYR) it has
+OR_PLOT_by_COND %>%
+  group_by(plot_id) %>%
+  summarise(
+    n_revisits = n_distinct(INVYR),
+    .groups = "drop"
+  ) %>%
+  count(n_revisits)
+
+# n=1 (23)
+# n=2 (485)
+# n=3 (87)
+
+# how many plots have pre and post fire surveys
+OR_fire_events <- OR_COND_long %>%
+  dplyr::select(plot_id, DSTRBYR) %>%
+  distinct() %>%
+  rename(fire_year = DSTRBYR)
+
+# does each unique plot_id have a pre and post fire survey around any/all fire years?
+OR_prepost_fire_summary <- OR_PLOT_by_COND %>%
+  distinct(plot_id, INVYR) %>%
+  inner_join(
+    OR_fire_events %>% distinct(plot_id, fire_year),
+    by = "plot_id"
+  ) %>%
+  mutate(
+    relationship = case_when(
+      INVYR < fire_year ~ "pre",
+      INVYR > fire_year ~ "post",
+      TRUE ~ "same_year"
+    )
+  ) %>%
+  group_by(plot_id, fire_year) %>%
+  summarise(
+    has_pre  = any(relationship == "pre"),
+    has_post = any(relationship == "post"),
+    n_pre_surveys  = sum(relationship == "pre"),
+    n_post_surveys = sum(relationship == "post"),
+    .groups = "drop"
+  ) %>%
+  mutate(
+      status = case_when(
+      has_pre & has_post ~ "pre_and_post",
+      has_pre ~ "pre_only",
+      has_post ~ "post_only",
+      TRUE ~ "no_clear_separation"
+    )
+  )
+
+OR_prepost_fire_summary %>%
+  count(status)
+# no clear separation = 5 
+# post only = 232
+# pre only = 44
+#pre and post = 334
+
+
+# how many plots are there in CA
+OR_PLOT %>%
+  distinct(LAT, LON) %>%
+  nrow()
+# 22411
+
+length(unique(OR_COND_IDs$plot_id)) # 22418
+length(unique(OR_PLOT_IDs$plot_id)) # 22418
 
 
 ```
-
+## tree
 ```{r}
+#Tree number. A number used to uniquely identify a tree on a subplot. Tree numbers can be used to track trees when PLOT.DESIGNCD or DESIGNCD is the same between inventories
+
+# before looking into tree level data, just confirm that the design codes are the same across plots in our CA_PLOT_by_COND table that has our burned plots
+n_distinct(OR_PLOT_by_COND$DESIGNCD) # two design codes across the filtered plots
+unique(OR_PLOT_by_COND$DESIGNCD) # that design code is 501, 502
+
+# two different design codes, may be important for relating tree surveys
+
+# do we have surviving trees in post-fire surveys?
+# create unique plot ids for CA_TREE
+OR_TREE_IDs <- OR_TREE %>%
+  dplyr::mutate(
+    plot_id = paste(STATECD, UNITCD, COUNTYCD, PLOT, sep = "_")
+  )
+
+#filter CA_TREE to only keep the unique plot ids from CA_PLOT_by_COND (our fire only plots in our focal forest types)
+OR_TREE_filtered <- OR_TREE_IDs %>%
+  filter(plot_id %in% OR_PLOT_by_COND$plot_id)
+
+# to locate a specific tree ID, use the following variables 
+# STATECD, INVYR, UNITCD, COUNTYCD, PLOT, SUBP, TREE
+# TREE is unique to SUBP not plot_id
+# we can look for unique combinations of SUBP and TREE within a plot_id (STATECD, UNITCD, COUNTYCD, PLOT)
+
+# to count how many times a tree was surveyed
+# group by plot_id, SUBP, TREE, and then count the number of INVYR
+OR_TREE_resurveys <- OR_TREE_filtered %>% 
+  group_by(plot_id, SUBP, TREE) %>% 
+  summarise(n_surveys = n_distinct(INVYR),
+            survey_years = paste(sort(unique(INVYR)), collapse = ", "),
+            .groups = "drop")
+
+# how many times have trees been resurveyed
+OR_TREE_resurveys %>%
+  count(n_surveys)
+
+#n=1 (3161)
+#n=2 (14462)
+#n=3 (2847)
+
+# maybe make a unique tree identifier too?
+#tree_id = paste(plot_id, SUBP, TREE, sep = "_") # also including INVYR?
+
+# lets look at trees in the plots with both pre and post fire surveys
+# pull the plot_ids for status = pre_and_post from CA_prepost_fire_summary and the fire year the post-fire plot is associated with
+
+OR_TREE_prepost_fire <- OR_TREE_filtered %>%
+  semi_join(
+    OR_prepost_fire_summary %>% filter(status == "pre_and_post"),
+    by = "plot_id"
+  ) %>%
+  left_join(
+    OR_prepost_fire_summary %>%
+      filter(status == "pre_and_post") %>%
+      dplyr::select(plot_id, fire_year, status),
+    by = "plot_id"
+  )
+
+OR_prepost_fire_summary %>%
+  filter(status == "pre_and_post") %>%
+  summarise(n_plots = n_distinct(plot_id)) #330
+length(unique(OR_TREE_prepost_fire$plot_id)) #329
+
+# both CA_fire_summary and CA_TREE_prepost_fire have 304 unique plot_id with pre and post fire inventories
+
+# now we want to look at just post-fire plots (where INVYR > fire_year)
+OR_TREE_post_fire_plots <- OR_TREE_prepost_fire %>%
+  filter(INVYR > fire_year)
+
+# number of trees per plot (post-fire plots)
+OR_TREE_per_plot_post <- OR_TREE_post_fire_plots %>%
+  mutate(which = "post") %>%
+  distinct(plot_id, INVYR, fire_year, status, SUBP, TREE, which) %>%
+  group_by(plot_id, INVYR, fire_year, status, which) %>%
+  summarise(n_tree = n(), .groups = "drop")
+
+summary(OR_TREE_per_plot_post$n_tree)
+
+# get the abundance of live and dead trees per species in each plot 
+OR_TREE_post_fire_plots_tree_status <- OR_TREE_post_fire_plots %>%
+  group_by(plot_id, INVYR, fire_year, SPCD, STATUSCD) %>%
+  summarise(n_tree = n(), .groups = "drop") %>%
+  left_join(REF_SPECIES %>% dplyr::select(SPCD, GENUS, SPECIES), 
+            by = "SPCD")
+
+# STATUSCD = 0 (not present), STATUSCD = 1 (live), STATUSCD = 2 (dead)
+
+# number of species with STATUSCD = 1 in post-fire plots
+OR_TREE_post_fire_plot_summary <- OR_TREE_post_fire_plots %>%
+  filter(STATUSCD == 1) %>%
+  group_by(plot_id, INVYR, fire_year) %>%
+  summarise(
+    n_live_species = n_distinct(SPCD),
+    n_live_trees = n(),
+    .groups = "drop")
+
+# number of individuals (live) per species per plot
+OR_TREE_post_fire_species_summary <- OR_TREE_post_fire_plots %>%
+  filter(STATUSCD == 1) %>%
+  group_by(plot_id, INVYR, fire_year, SPCD) %>%
+  summarise(
+    n_live_trees = n(),
+    .groups = "drop"
+  ) %>%
+  left_join(
+    REF_SPECIES %>%
+      dplyr::select(SPCD, GENUS, SPECIES),
+    by = "SPCD"
+  ) %>%
+  mutate(species = paste(GENUS, SPECIES, sep = "_"))
+
+### visualize plot level summaries
+
+# number of live species per plot (post-fire plots)
+OR_TREE_post_fire_species_summary %>%
+  group_by(plot_id) %>%
+  summarise(n_species = n_distinct(SPCD)) %>%
+  ggplot(aes(x = n_species)) +
+  geom_histogram(binwidth = 1, fill = "steelblue", color = "white") +
+  theme_bw() +
+  labs(x = "Number of live species per plot", y = "Number of plots")
+
+# abundance of each species per plot (top 20 most abundant species)
+ggplot(
+  OR_TREE_post_fire_species_summary %>%
+    group_by(species, plot_id) %>%
+    summarise(n_live_trees = sum(n_live_trees), .groups = "drop") %>%
+    group_by(species) %>%
+    summarise(mean_per_plot = mean(n_live_trees), .groups = "drop") %>%
+    slice_max(mean_per_plot, n = 20),
+  aes(x = reorder(species, mean_per_plot),
+      y = mean_per_plot)
+) +
+  geom_col(fill = "steelblue") +
+  coord_flip() +
+  labs(
+    x = "species",
+    y = "average # live trees per plot",
+    title = "average abundance of species per plot"
+  ) +
+  theme_bw()
+
+# boxplots of tree abundance per species per plot
+OR_TREE_post_fire_plots %>%
+  group_by(plot_id, SPCD) %>%
+  summarise(n_trees = n(), .groups = "drop") %>%
+  left_join(
+    REF_SPECIES %>% dplyr:: select(SPCD, GENUS, SPECIES),
+    by = "SPCD"
+  ) %>%
+  mutate(species = paste(GENUS, SPECIES, sep = "_")) %>%
+  ggplot(aes(x = species, y = n_trees)) +
+  geom_boxplot(fill = "steelblue", alpha = 0.6) +
+  coord_flip() +
+  labs(
+    x = "species",
+    y = "trees per plot",
+    title = "tree abundance per species per plot"
+  ) +
+  scale_y_continuous(
+    breaks = function(x) seq(0, max(x, na.rm = TRUE), by = 5)
+  ) +
+  theme_bw()
 
 ```
 
-##ID
+## seedling
 ```{r}
+# is there recruitment in post-fire surveys?
+
+# seedling counts are under TREECOUNT in CA_SEEDLING
+# TREECOUNT is for  (plot × subplot/microplot × species × inventory)
+# in the CA_SEEDLING table, SUBP = microplot since seedlings are inventoried at the microplot within a subplot
+
+# create unique plot ids for CA_SEEDLING
+OR_SEEDLING_IDs <- OR_SEEDLING %>%
+  dplyr::mutate(
+    plot_id = paste(STATECD, UNITCD, COUNTYCD, PLOT, sep = "_")
+  )
+
+#filter CA_SEEDLING to only keep the unique plot ids from CA_PLOT_by_COND
+OR_SEEDLING_filtered <- OR_SEEDLING_IDs %>%
+  filter(plot_id %in% OR_PLOT_by_COND$plot_id)
+
+# lets look at trees in the plots with both pre and post fire 
+# pull the plot_ids for status = pre_and_post from CA_prepost_fire_summary
+
+OR_SEEDLING_prepost_fire <- OR_SEEDLING_filtered %>%
+  semi_join(OR_prepost_fire_summary %>% filter(status == "pre_and_post"),
+    by = "plot_id") %>%
+  left_join(OR_prepost_fire_summary %>%
+      filter(status == "pre_and_post") %>%
+      dplyr::select(plot_id, fire_year, status),
+    by = "plot_id")
+
+# filter to post-fire plots only
+OR_SEEDLING_post_fire_plots <- OR_SEEDLING_prepost_fire %>%
+  filter(INVYR > fire_year)
+
+length(unique(OR_SEEDLING_post_fire_plots$plot_id)) # 203
+length(unique(OR_TREE_post_fire_plots$plot_id)) # 329
+# 203 unique plots (why is this different from the 329 for the TREE analysis ??)
+
+# number of seedlings per plot (aggregated across SUBP/microplot)
+OR_SEEDLING_per_plot <- OR_SEEDLING_post_fire_plots %>%
+  group_by(plot_id, INVYR, fire_year) %>%
+  summarise(
+    n_seedlings = sum(TREECOUNT, na.rm = TRUE),
+    .groups = "drop"
+  )
+
+hist(OR_SEEDLING_per_plot$n_seedlings, breaks=30)
+summary(OR_SEEDLING_per_plot$n_seedlings)
+
+# number of seedlings per species per plot (aggregated across SUBP/microplot)
+OR_SEEDLING_species_summary <- OR_SEEDLING_post_fire_plots %>%
+  group_by(plot_id, INVYR, fire_year, SPCD) %>%
+  summarise(n_seedlings = sum(TREECOUNT, na.rm = TRUE),
+    .groups = "drop") %>%
+  left_join(REF_SPECIES %>% dplyr::select(SPCD, GENUS, SPECIES),
+    by = "SPCD") %>%
+  mutate(species = paste(GENUS, SPECIES, sep = "_"))
+
+OR_SEEDLING_species_summary %>%
+  group_by(plot_id) %>%
+  summarise(n_species = n_distinct(SPCD)) %>%
+  ggplot(aes(x = n_species)) +
+  geom_histogram(binwidth = 1, fill = "darkgreen", color = "white") +
+  theme_bw() +
+  labs(
+    x = "Number of seedling species per plot",
+    y = "Number of plots"
+  )
+
+# number of species of seedlings per plot 
+OR_SEEDLING_plot_summary <- OR_SEEDLING_post_fire_plots %>%
+  group_by(plot_id, INVYR, fire_year) %>%
+  summarise(
+    n_seedling_species = n_distinct(SPCD),
+    n_seedlings = sum(TREECOUNT, na.rm = TRUE),
+    .groups = "drop"
+  )
+
+# average number of seedlings per species per plot
+ggplot(
+  OR_SEEDLING_species_summary %>%
+    group_by(species, plot_id) %>%
+    summarise(n_seedlings = sum(n_seedlings), .groups = "drop") %>%
+    group_by(species) %>%
+    summarise(mean_per_plot = mean(n_seedlings), .groups = "drop") %>%
+    slice_max(mean_per_plot, n = 20),
+  aes(
+    x = reorder(species, mean_per_plot),
+    y = mean_per_plot
+  )
+) +
+  geom_col(fill = "darkgreen") +
+  coord_flip() +
+  scale_y_continuous(
+    breaks = function(x) seq(0, max(x, na.rm = TRUE), by = 5)
+  ) +
+  labs(
+    x = "species",
+    y = "average # seedlings per plot",
+    title = "average seedling abundance per species per plot"
+  ) +
+  theme_bw()
+
+# how many plots have 0 species?
+OR_SEEDLING_post_fire_plots %>%
+  group_by(plot_id) %>%
+  summarise(n_species = n_distinct(SPCD[TREECOUNT > 0])) %>%
+  filter(n_species == 0)
+# no plots have zero species as seedlings
+
+# boxplots of seedling abundances per species per plot
+OR_SEEDLING_species_summary %>%
+  group_by(plot_id, species) %>%
+  summarise(n_seedlings = sum(n_seedlings), .groups = "drop") %>%
+  
+  mutate(n_seedlings_capped = pmin(n_seedlings, 50)) %>%
+  
+  ggplot(aes(x = species, y = n_seedlings_capped)) +
+  geom_boxplot(fill = "darkgreen", alpha = 0.6) +
+  coord_flip() +
+  labs(
+    x = "species",
+    y = "seedlings per plot (capped at 50)",
+    title = "seedling abundance per species per plot"
+  ) +
+  theme_bw()
+
+```
+## seedling expanded
+```{r}
+# expand seedling analysis to look at trees in plots with both pre and post fire and just post-fire
+# pull the plot_ids for status = pre_and_post, and post_only from CA_prepost_fire_summary
+
+OR_SEEDLING_prepost_fire <- OR_SEEDLING_filtered %>%
+  semi_join(OR_prepost_fire_summary %>% filter(status %in% c("pre_and_post", "post_only")),
+    by = "plot_id") %>%
+  left_join(OR_prepost_fire_summary %>%
+      filter(status %in% c("pre_and_post", "post_only")) %>%
+      dplyr::select(plot_id, fire_year, status),
+    by = "plot_id")
+
+# filter to post-fire plots only
+OR_SEEDLING_post_fire_plots <- OR_SEEDLING_prepost_fire %>%
+  filter(INVYR > fire_year)
+
+length(unique(OR_SEEDLING_post_fire_plots$plot_id)) # 381
+# 381 unique plots instead of the 203 in the pre_and_post analysis above
+
+# how many post fire plots have TREECOUNT = NA (no seedlings recorded)
+CA_SEEDLING_post_fire_plots %>%
+  filter(is.na(TREECOUNT)) %>%
+  summarise(n_plot_ids = n_distinct(plot_id))
+# 16 / 237 have no seedlings 
+
+# number of seedlings per plot (aggregated across SUBP/microplot)
+CA_SEEDLING_per_plot <- CA_SEEDLING_post_fire_plots %>%
+  group_by(plot_id, INVYR, fire_year) %>%
+  summarise(
+    n_seedlings = sum(TREECOUNT, na.rm = TRUE),
+    .groups = "drop"
+  )
+
+hist(CA_SEEDLING_per_plot$n_seedlings, breaks=30)
+summary(CA_SEEDLING_per_plot$n_seedlings)
+
+# slightly less seedlings per plot when adding ~100 more plots that are post_only 
+# median = 6, mean = 17
+
+# median is a more useful metric for seedling counts that mean because seedlings counts are highly skewed and median values give us a better approximation of the most typical plot
+
+# number of species of seedlings per plot 
+CA_SEEDLING_plot_summary <- CA_SEEDLING_post_fire_plots %>%
+  group_by(plot_id, INVYR, fire_year) %>%
+  summarise(
+    n_seedling_species = n_distinct(SPCD),
+    n_seedlings = sum(TREECOUNT, na.rm = TRUE),
+    .groups = "drop"
+  )
+
+# number of individuals per species per plot
+CA_SEEDLING_species_summary <- CA_SEEDLING_post_fire_plots %>%
+  group_by(plot_id, INVYR, fire_year, SPCD) %>%
+  summarise(n_seedlings = sum(TREECOUNT, na.rm = TRUE),
+    .groups = "drop") %>%
+  left_join(REF_SPECIES %>% dplyr::select(SPCD, GENUS, SPECIES),
+    by = "SPCD") %>%
+  mutate(species = paste(GENUS, SPECIES, sep = "_"))
 ```
 
-##MT
+
+#WA
+### fire only plots
 ```{r}
+#create a unique PLOT ID in COND and in PLOT tables 
+WA_COND_IDs <- WA_COND %>%
+  dplyr::mutate(
+    plot_id = paste(STATECD, UNITCD, COUNTYCD, PLOT, sep = "_")
+  )
+WA_PLOT_IDs <- WA_PLOT %>%
+  dplyr::mutate(
+    plot_id = paste(STATECD, UNITCD, COUNTYCD, PLOT, sep = "_")
+  )
+
+# collapse information from multiple CONDIDs associated with each plot to avoid many-to-many mapping
+# and then filter by fire and forest type  
+
+#plot_id → multiple CONDIDs → each CONDID has up to 3 disturbance codes and years
+# one row for a specific plot_id, CONID, and disturbance event (combining DSTRBCD and DSTRBYR)
+WA_COND_long <- WA_COND_IDs %>%
+  dplyr::select(plot_id, CONDID, FORTYPCD,
+    DSTRBCD1, DSTRBCD2, DSTRBCD3,
+    DSTRBYR1, DSTRBYR2, DSTRBYR3) %>%
+  pivot_longer(
+    cols = starts_with("DSTR"),
+    names_to = c(".value", "event"),
+    names_pattern = "(DSTRBCD|DSTRBYR)([1-3])"
+  ) %>%
+  filter(DSTRBCD %in% c(30, 31, 32)) %>%
+  filter(FORTYPCD %in% c(371, 201, 221, 222, 224, 225, 261, 922)) %>%
+  mutate(
+    fire_year_severity = paste(DSTRBYR, DSTRBCD, sep = "_")
+  )
+
+# summarize fire history across rows for unique plot_id (one row per plot_id)
+WA_fire_summary <- WA_COND_long %>%
+  group_by(plot_id) %>%
+  summarise(
+    n_fire_events = n_distinct(DSTRBYR), # number of distinct fire years per plot
+    
+    # this just collapses all codes into a list but not necessarily relative to year
+    fire_types = paste(sort(unique(DSTRBCD)), collapse = ", "), 
+    fire_years = paste(sort(unique(DSTRBYR)), collapse = ", "),
+    
+    fire_year_severity =
+    paste(unique(fire_year_severity), collapse = ", "),
+    
+    multiple_fires = n_distinct(DSTRBYR) > 1, # did fire occur more than once?
+    multiple_severity = n_distinct(DSTRBCD) > 1, # are there multiple fire types?
+    first_fire_year = min(DSTRBYR, na.rm = TRUE),
+    last_fire_year = max(DSTRBYR, na.rm = TRUE),
+    .groups = "drop"
+  )
+
+# how many plots burned multiple times?
+WA_fire_summary %>% summarise(n_plots_multiple_fires = sum(multiple_fires))
+# 4 plots
+
+# how many plots that burned multipe times have different severities?
+WA_fire_summary %>% filter(multiple_fires) %>% summarise(n_plots_multiple_fire_and_severity = sum(multiple_severity))
+# 0 plots
+
+# how many plots that burned once have multiple severities within a plot?
+WA_fire_summary %>%
+  filter(!multiple_fires) %>%
+  summarise(
+    n_plots_single_fire_multiple_severity =
+      sum(multiple_severity))
+# 5 plots
+
+WA_burned_PLOT_IDs <- WA_fire_summary %>% 
+  distinct(plot_id)
+
+# merge COND and PLOT by this unique ID 
+WA_PLOT_by_COND <- WA_PLOT_IDs %>%
+  semi_join(WA_burned_PLOT_IDs, by = "plot_id") %>%  #keep only plot_ids with at least one fire 
+  left_join(WA_fire_summary, by = "plot_id")  #add fire summary to each plot, should be one-to-many mapping
+
+#for each unique plot, count how many unique inventory years (INVYR) it has
+WA_PLOT_by_COND %>%
+  group_by(plot_id) %>%
+  summarise(
+    n_revisits = n_distinct(INVYR),
+    .groups = "drop"
+  ) %>%
+  count(n_revisits)
+
+# n=2 (241)
+
+
+# how many plots have pre and post fire surveys
+WA_fire_events <- WA_COND_long %>%
+  dplyr::select(plot_id, DSTRBYR) %>%
+  distinct() %>%
+  rename(fire_year = DSTRBYR)
+
+# does each unique plot_id have a pre and post fire survey around any/all fire years?
+WA_prepost_fire_summary <- WA_PLOT_by_COND %>%
+  distinct(plot_id, INVYR) %>%
+  inner_join(
+    WA_fire_events %>% distinct(plot_id, fire_year),
+    by = "plot_id"
+  ) %>%
+  mutate(
+    relationship = case_when(
+      INVYR < fire_year ~ "pre",
+      INVYR > fire_year ~ "post",
+      TRUE ~ "same_year"
+    )
+  ) %>%
+  group_by(plot_id, fire_year) %>%
+  summarise(
+    has_pre  = any(relationship == "pre"),
+    has_post = any(relationship == "post"),
+    n_pre_surveys  = sum(relationship == "pre"),
+    n_post_surveys = sum(relationship == "post"),
+    .groups = "drop"
+  ) %>%
+  mutate(
+      status = case_when(
+      has_pre & has_post ~ "pre_and_post",
+      has_pre ~ "pre_only",
+      has_post ~ "post_only",
+      TRUE ~ "no_clear_separation"
+    )
+  )
+
+WA_prepost_fire_summary %>%
+  count(status)
+
+# post only = 79
+# pre only = 11
+#pre and post = 155
+
+
+# how many plots are there in CA
+WA_PLOT %>%
+  distinct(LAT, LON) %>%
+  nrow()
+# 11778
+
+length(unique(WA_COND_IDs$plot_id)) # 11988
+length(unique(WA_PLOT_IDs$plot_id)) # 11988
+
+
+```
+## tree
+```{r}
+#Tree number. A number used to uniquely identify a tree on a subplot. Tree numbers can be used to track trees when PLOT.DESIGNCD or DESIGNCD is the same between inventories
+
+# before looking into tree level data, just confirm that the design codes are the same across plots in our CA_PLOT_by_COND table that has our burned plots
+n_distinct(WA_PLOT_by_COND$DESIGNCD) # two design codes across the filtered plots
+unique(WA_PLOT_by_COND$DESIGNCD) # that design code is 501, 502
+
+# two different design codes, may be important for relating tree surveys
+
+# do we have surviving trees in post-fire surveys?
+# create unique plot ids for CA_TREE
+WA_TREE_IDs <- WA_TREE %>%
+  dplyr::mutate(
+    plot_id = paste(STATECD, UNITCD, COUNTYCD, PLOT, sep = "_")
+  )
+
+#filter CA_TREE to only keep the unique plot ids from CA_PLOT_by_COND (our fire only plots in our focal forest types)
+WA_TREE_filtered <- WA_TREE_IDs %>%
+  filter(plot_id %in% WA_PLOT_by_COND$plot_id)
+
+# to locate a specific tree ID, use the following variables 
+# STATECD, INVYR, UNITCD, COUNTYCD, PLOT, SUBP, TREE
+# TREE is unique to SUBP not plot_id
+# we can look for unique combinations of SUBP and TREE within a plot_id (STATECD, UNITCD, COUNTYCD, PLOT)
+
+# to count how many times a tree was surveyed
+# group by plot_id, SUBP, TREE, and then count the number of INVYR
+WA_TREE_resurveys <- WA_TREE_filtered %>% 
+  group_by(plot_id, SUBP, TREE) %>% 
+  summarise(n_surveys = n_distinct(INVYR),
+            survey_years = paste(sort(unique(INVYR)), collapse = ", "),
+            .groups = "drop")
+
+# how many times have trees been resurveyed
+WA_TREE_resurveys %>%
+  count(n_surveys)
+
+#n=1 (836)
+#n=2 (6024)
+#n=3 (355)
+
+# maybe make a unique tree identifier too?
+#tree_id = paste(plot_id, SUBP, TREE, sep = "_") # also including INVYR?
+
+# lets look at trees in the plots with both pre and post fire surveys
+# pull the plot_ids for status = pre_and_post from CA_prepost_fire_summary and the fire year the post-fire plot is associated with
+
+WA_TREE_prepost_fire <- WA_TREE_filtered %>%
+  semi_join(
+    WA_prepost_fire_summary %>% filter(status == "pre_and_post"),
+    by = "plot_id"
+  ) %>%
+  left_join(
+    WA_prepost_fire_summary %>%
+      filter(status == "pre_and_post") %>%
+      dplyr::select(plot_id, fire_year, status),
+    by = "plot_id"
+  )
+
+WA_prepost_fire_summary %>%
+  filter(status == "pre_and_post") %>%
+  summarise(n_plots = n_distinct(plot_id)) #155
+length(unique(WA_TREE_prepost_fire$plot_id)) #155
+
+# both CA_fire_summary and CA_TREE_prepost_fire have 304 unique plot_id with pre and post fire inventories
+
+# now we want to look at just post-fire plots (where INVYR > fire_year)
+WA_TREE_post_fire_plots <- WA_TREE_prepost_fire %>%
+  filter(INVYR > fire_year)
+
+# number of trees per plot (post-fire plots)
+WA_TREE_per_plot_post <- WA_TREE_post_fire_plots %>%
+  mutate(which = "post") %>%
+  distinct(plot_id, INVYR, fire_year, status, SUBP, TREE, which) %>%
+  group_by(plot_id, INVYR, fire_year, status, which) %>%
+  summarise(n_tree = n(), .groups = "drop")
+
+summary(WA_TREE_per_plot_post$n_tree)
+
+# get the abundance of live and dead trees per species in each plot 
+WA_TREE_post_fire_plots_tree_status <- WA_TREE_post_fire_plots %>%
+  group_by(plot_id, INVYR, fire_year, SPCD, STATUSCD) %>%
+  summarise(n_tree = n(), .groups = "drop") %>%
+  left_join(REF_SPECIES %>% dplyr::select(SPCD, GENUS, SPECIES), 
+            by = "SPCD")
+
+# STATUSCD = 0 (not present), STATUSCD = 1 (live), STATUSCD = 2 (dead)
+
+# number of species with STATUSCD = 1 in post-fire plots
+WA_TREE_post_fire_plot_summary <- WA_TREE_post_fire_plots %>%
+  filter(STATUSCD == 1) %>%
+  group_by(plot_id, INVYR, fire_year) %>%
+  summarise(
+    n_live_species = n_distinct(SPCD),
+    n_live_trees = n(),
+    .groups = "drop")
+
+# number of individuals (live) per species per plot
+WA_TREE_post_fire_species_summary <- WA_TREE_post_fire_plots %>%
+  filter(STATUSCD == 1) %>%
+  group_by(plot_id, INVYR, fire_year, SPCD) %>%
+  summarise(
+    n_live_trees = n(),
+    .groups = "drop"
+  ) %>%
+  left_join(
+    REF_SPECIES %>%
+      dplyr::select(SPCD, GENUS, SPECIES),
+    by = "SPCD"
+  ) %>%
+  mutate(species = paste(GENUS, SPECIES, sep = "_"))
+
+### visualize plot level summaries
+
+# number of live species per plot (post-fire plots)
+WA_TREE_post_fire_species_summary %>%
+  group_by(plot_id) %>%
+  summarise(n_species = n_distinct(SPCD)) %>%
+  ggplot(aes(x = n_species)) +
+  geom_histogram(binwidth = 1, fill = "steelblue", color = "white") +
+  theme_bw() +
+  labs(x = "Number of live species per plot", y = "Number of plots")
+
+# abundance of each species per plot (top 20 most abundant species)
+ggplot(
+  WA_TREE_post_fire_species_summary %>%
+    group_by(species, plot_id) %>%
+    summarise(n_live_trees = sum(n_live_trees), .groups = "drop") %>%
+    group_by(species) %>%
+    summarise(mean_per_plot = mean(n_live_trees), .groups = "drop") %>%
+    slice_max(mean_per_plot, n = 20),
+  aes(x = reorder(species, mean_per_plot),
+      y = mean_per_plot)
+) +
+  geom_col(fill = "steelblue") +
+  coord_flip() +
+  labs(
+    x = "species",
+    y = "average # live trees per plot",
+    title = "average abundance of species per plot"
+  ) +
+  theme_bw()
+
+# boxplots of tree abundance per species per plot
+WA_TREE_post_fire_plots %>%
+  group_by(plot_id, SPCD) %>%
+  summarise(n_trees = n(), .groups = "drop") %>%
+  left_join(
+    REF_SPECIES %>% dplyr:: select(SPCD, GENUS, SPECIES),
+    by = "SPCD"
+  ) %>%
+  mutate(species = paste(GENUS, SPECIES, sep = "_")) %>%
+  ggplot(aes(x = species, y = n_trees)) +
+  geom_boxplot(fill = "steelblue", alpha = 0.6) +
+  coord_flip() +
+  labs(
+    x = "species",
+    y = "trees per plot",
+    title = "tree abundance per species per plot"
+  ) +
+  scale_y_continuous(
+    breaks = function(x) seq(0, max(x, na.rm = TRUE), by = 5)
+  ) +
+  theme_bw()
+
+```
+
+## seedling
+```{r}
+# is there recruitment in post-fire surveys?
+
+# seedling counts are under TREECOUNT in CA_SEEDLING
+# TREECOUNT is for  (plot × subplot/microplot × species × inventory)
+# in the CA_SEEDLING table, SUBP = microplot since seedlings are inventoried at the microplot within a subplot
+
+# create unique plot ids for CA_SEEDLING
+WA_SEEDLING_IDs <- WA_SEEDLING %>%
+  dplyr::mutate(
+    plot_id = paste(STATECD, UNITCD, COUNTYCD, PLOT, sep = "_")
+  )
+
+#filter CA_SEEDLING to only keep the unique plot ids from CA_PLOT_by_COND
+WA_SEEDLING_filtered <- WA_SEEDLING_IDs %>%
+  filter(plot_id %in% WA_PLOT_by_COND$plot_id)
+
+# lets look at trees in the plots with both pre and post fire 
+# pull the plot_ids for status = pre_and_post from CA_prepost_fire_summary
+
+WA_SEEDLING_prepost_fire <- WA_SEEDLING_filtered %>%
+  semi_join(WA_prepost_fire_summary %>% filter(status == "pre_and_post"),
+    by = "plot_id") %>%
+  left_join(WA_prepost_fire_summary %>%
+      filter(status == "pre_and_post") %>%
+      dplyr::select(plot_id, fire_year, status),
+    by = "plot_id")
+
+# filter to post-fire plots only
+WA_SEEDLING_post_fire_plots <- WA_SEEDLING_prepost_fire %>%
+  filter(INVYR > fire_year)
+
+length(unique(WA_SEEDLING_post_fire_plots$plot_id)) # 68
+length(unique(WA_TREE_post_fire_plots$plot_id)) # 155
+# 68 unique plots (why is this different from the 155 for the TREE analysis ??)
+
+# number of seedlings per plot (aggregated across SUBP/microplot)
+WA_SEEDLING_per_plot <- WA_SEEDLING_post_fire_plots %>%
+  group_by(plot_id, INVYR, fire_year) %>%
+  summarise(
+    n_seedlings = sum(TREECOUNT, na.rm = TRUE),
+    .groups = "drop"
+  )
+
+hist(WA_SEEDLING_per_plot$n_seedlings, breaks=30)
+summary(WA_SEEDLING_per_plot$n_seedlings)
+
+# number of seedlings per species per plot (aggregated across SUBP/microplot)
+WA_SEEDLING_species_summary <- WA_SEEDLING_post_fire_plots %>%
+  group_by(plot_id, INVYR, fire_year, SPCD) %>%
+  summarise(n_seedlings = sum(TREECOUNT, na.rm = TRUE),
+    .groups = "drop") %>%
+  left_join(REF_SPECIES %>% dplyr::select(SPCD, GENUS, SPECIES),
+    by = "SPCD") %>%
+  mutate(species = paste(GENUS, SPECIES, sep = "_"))
+
+WA_SEEDLING_species_summary %>%
+  group_by(plot_id) %>%
+  summarise(n_species = n_distinct(SPCD)) %>%
+  ggplot(aes(x = n_species)) +
+  geom_histogram(binwidth = 1, fill = "darkgreen", color = "white") +
+  theme_bw() +
+  labs(
+    x = "Number of seedling species per plot",
+    y = "Number of plots"
+  )
+
+# number of species of seedlings per plot 
+WA_SEEDLING_plot_summary <- WA_SEEDLING_post_fire_plots %>%
+  group_by(plot_id, INVYR, fire_year) %>%
+  summarise(
+    n_seedling_species = n_distinct(SPCD),
+    n_seedlings = sum(TREECOUNT, na.rm = TRUE),
+    .groups = "drop"
+  )
+
+# average number of seedlings per species per plot
+ggplot(
+  WA_SEEDLING_species_summary %>%
+    group_by(species, plot_id) %>%
+    summarise(n_seedlings = sum(n_seedlings), .groups = "drop") %>%
+    group_by(species) %>%
+    summarise(mean_per_plot = mean(n_seedlings), .groups = "drop") %>%
+    slice_max(mean_per_plot, n = 20),
+  aes(
+    x = reorder(species, mean_per_plot),
+    y = mean_per_plot
+  )
+) +
+  geom_col(fill = "darkgreen") +
+  coord_flip() +
+  scale_y_continuous(
+    breaks = function(x) seq(0, max(x, na.rm = TRUE), by = 5)
+  ) +
+  labs(
+    x = "species",
+    y = "average # seedlings per plot",
+    title = "average seedling abundance per species per plot"
+  ) +
+  theme_bw()
+
+# how many plots have 0 species?
+WA_SEEDLING_post_fire_plots %>%
+  group_by(plot_id) %>%
+  summarise(n_species = n_distinct(SPCD[TREECOUNT > 0])) %>%
+  filter(n_species == 0)
+# no plots have zero species as seedlings
+
+# boxplots of seedling abundances per species per plot
+WA_SEEDLING_species_summary %>%
+  group_by(plot_id, species) %>%
+  summarise(n_seedlings = sum(n_seedlings), .groups = "drop") %>%
+  
+  mutate(n_seedlings_capped = pmin(n_seedlings, 50)) %>%
+  
+  ggplot(aes(x = species, y = n_seedlings_capped)) +
+  geom_boxplot(fill = "darkgreen", alpha = 0.6) +
+  coord_flip() +
+  labs(
+    x = "species",
+    y = "seedlings per plot (capped at 50)",
+    title = "seedling abundance per species per plot"
+  ) +
+  theme_bw()
+
 ```
 
 # species list
