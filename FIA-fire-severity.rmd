@@ -16,6 +16,7 @@ remotes::install_github("ropensci/rnaturalearthhires")
 library(gridExtra)
 install.packages('geosphere')
 library(geosphere)
+library(fields)
 
 ```
 #load data
@@ -68,6 +69,16 @@ MT_SEEDLING <- read.csv("./data/FIA/MT_SEEDLING.csv")
 
 # Load in reference species names
 REF_SPECIES <- read.csv("./data/FIA/REF_SPECIES.csv")
+
+# load terra climate data
+ppt_mean <- rast("data/terra_climate/ppt_30yr_mean.tif")
+def_mean <- rast("data/terra_climate/def_30yr_mean.tif")
+vpd_mean <- rast("data/terra_climate/vpd_30yr_mean.tif")
+aet_mean <- rast("data/terra_climate/aet_30yr_mean.tif")
+pet_mean <- rast("data/terra_climate/pet_30yr_mean.tif")
+tmax_mean <- rast("data/terra_climate/tmax_30yr_mean.tif")
+tmin_mean <- rast("data/terra_climate/tmin_30yr_mean.tif")
+
 ```
 
 # filter by disturbance and forest type
@@ -1006,26 +1017,147 @@ hist(CA_PLOT_time_since_fire$time_since_fire)
 
 ```{r}
 # create a list/ table of lat/ long coordinates for all unique plot ID's in CA 
-CA_COND_IDs
-CA_PLOT_IDs
+hist(CA_COND$DSTRBCD1)
 
-# attach new column for treatment and label as 'burned'
-CA_burned_PLOT_IDs
+CA_COND_control <- CA_COND_IDs %>%
+  filter(
+    FORTYPCD %in% c(371, 201, 221, 222, 224, 225, 261, 922),
+    DSTRBCD1 == 0,
+    DSTRBCD2 == 0,
+    DSTRBCD3 == 0
+  )
+# 2387 unique plots have no disturbance in all years
+
+# filter CA_COND for burned and control plots
+CA_COND_treatment <- CA_COND_IDs %>%
+  filter(
+    FORTYPCD %in% c(371, 201, 221, 222, 224, 225, 261, 922)
+  ) %>%
+  mutate(
+    fire_code = case_when(
+      # control plots
+      DSTRBCD1 == 0 &
+      DSTRBCD2 == 0 &
+      DSTRBCD3 == 0 ~ 0,
+
+      # burned plots
+      DSTRBCD1 %in% c(30, 31, 32) ~ DSTRBCD1,
+      DSTRBCD2 %in% c(30, 31, 32) ~ DSTRBCD2,
+      DSTRBCD3 %in% c(30, 31, 32) ~ DSTRBCD3,
+
+      TRUE ~ NA_real_
+    ),
+    condition = case_when(
+      fire_code == 0 ~ "control",
+      fire_code %in% c(30, 31, 32) ~ "burned",
+      TRUE ~ NA_character_
+    )
+  ) %>%
+  filter(!is.na(fire_code))
+
+# create a table for burned/control summaries by plot
+CA_treatment_summary <- CA_COND_IDs %>%
+  filter(
+    FORTYPCD %in% c(371, 201, 221, 222, 224, 225, 261, 922)
+  ) %>%
+  group_by(plot_id) %>%
+  summarise(
+    has_fire = any(
+      DSTRBCD1 %in% c(30,31,32) |
+      DSTRBCD2 %in% c(30,31,32) |
+      DSTRBCD3 %in% c(30,31,32)
+    ),
+
+    fire_code = paste(
+      sort(unique(c(
+        DSTRBCD1[DSTRBCD1 %in% c(30,31,32)],
+        DSTRBCD2[DSTRBCD2 %in% c(30,31,32)],
+        DSTRBCD3[DSTRBCD3 %in% c(30,31,32)]
+      ))),
+      collapse = ", "
+    ),
+
+    .groups = "drop"
+  ) %>%
+  mutate(
+    condition = if_else(has_fire, "burned", "control"),
+    fire_code = if_else(has_fire, fire_code, "0")
+  ) %>%
+  select(plot_id, condition, fire_code)
+
+CA_treatment_summary %>%
+  count(condition)
+# burned      434
+# control    3052
+
+# merge condition summaries with CA_PLOT, filtering for control/burned plots only
+CA_PLOT_treatment <- CA_PLOT_IDs %>%
+  semi_join(
+    CA_treatment_summary,
+    by = "plot_id"
+  ) %>%
+  left_join(
+    CA_treatment_summary,
+    by = "plot_id"
+  )
+
+CA_PLOT_treatment %>%
+  group_by(condition) %>%
+  summarise(
+    n_unique_plots = n_distinct(plot_id)
+  )
+# burned 434
+# control 3052
+
+# lets make sure that our new filtering for burned plots matches our previous filtering: 
+CA_PLOT_treatment %>%
+  filter(condition == "burned") %>%
+  distinct(plot_id) %>%
+  anti_join(
+    CA_burned_PLOT_IDs %>% distinct(plot_id),
+    by = "plot_id"
+  )
+
+CA_burned_PLOT_IDs %>%
+  distinct(plot_id) %>%
+  anti_join(
+    CA_PLOT_treatment %>%
+      filter(condition == "burned") %>%
+      distinct(plot_id),
+    by = "plot_id"
+  )
+# burned plots are identical with two different filtering methods
+
+# lets pull climate for control and burned plots 
+CA_PLOT_coordinates <- CA_PLOT_treatment[, c("plot_id", "LAT","LON")]
+
+CA_PLOT_coordinates %>%
+  group_by(plot_id) %>%
+  summarise(
+    n_coords = n_distinct(paste(LAT, LON)),
+    .groups = "drop"
+  ) %>%
+  filter(n_coords > 1)
+
+CA_PLOT_coordinates <- CA_PLOT_treatment %>%
+  select(plot_id, LAT, LON) %>%
+  distinct()
+
+# convert lat/long points in a spatial object
+CA_PLOT_coordinates_vect <- vect(
+  CA_PLOT_coordinates, geom = c("LON", "LAT"), crs = "EPSG:4326")
 
 # extract climate for all lat/long coordinates (all unique plot IDs)
 
-# convert lat/long points in a spatial object
-CA_plots_vect <- vect(CA_PLOT_IDs$plot_id, geom = c("longitude", "latitude"), crs = "EPSG:4326")
+names(ppt_mean) <- "ppt_mean"
+names(def_mean) <- "def_mean"
+names(tmin_mean) <- "tmin_mean"
+names(tmax_mean) <- "tmax_mean"
+names(aet_mean) <- "aet_mean"
+names(pet_mean) <- "pet_mean"
+names(vpd_mean) <- "vpd_mean"
 
-ppt_values <- extract(ppt_mean, plots_vect)
-def_values <- extract(def_mean, plots_vect)
-pet_values <- extract(pet_mean, plots_vect)
-aet_values <- extract(aet_mean, plots_vect)
-vpd_values <- extract(vpd_mean, plots_vect)
-tmin_values <- extract(tmin_mean, plots_vect)
-tmax_values <- extract(tmax_mean, plots_vect)
-
-climate_stack <- c(
+terra_climate_stack <- c(
   ppt_mean,
   def_mean,
   tmin_mean,
@@ -1035,94 +1167,143 @@ climate_stack <- c(
   vpd_mean
 )
 
-climate_values <- extract(
-  climate_stack,
-  plots_vect
+
+terra_climate_values <- terra::extract(
+  terra_climate_stack,
+  CA_PLOT_coordinates_vect
+) %>%
+  bind_cols(
+    CA_PLOT_coordinates %>% select(plot_id, LAT, LON)
+  ) %>%
+  select(plot_id, LAT, LON, everything(), -ID)
+
+terra_climate_values <- terra_climate_values %>%
+  left_join(
+    CA_treatment_summary %>%
+      select(plot_id, condition, fire_code),
+    by = "plot_id"
+  )
+
+plot(def_mean)
+points(
+  CA_PLOT_coordinates_vect,
+  col = ifelse(terra_climate_values$condition == "burned", "red", "blue"),
+  pch = 19
 )
+
+def_df <- as.data.frame(
+  def_mean,
+  xy = TRUE
+)
+
+ggplot(
+  terra_climate_values,
+  aes(
+    x = LON,
+    y = LAT,
+    color = def_mean
+  )
+) +
+  geom_point(
+    size = 3
+  ) +
+  scale_color_viridis_c(
+    name = "Climatic water deficit\n(mm)"
+  ) +
+  coord_equal() +
+  theme_classic()
 
 # join climate back to main data frame with all plots 
-CA_PLOT_IDs
-CA_PLOT_climate <- bind_cols(
-  CA_PLOT_IDs,
-  climate_values[, -1]
-)
-# add a column for burned or control plots to main data frame with all plots
-
-
+#CA_PLOT_climate <- CA_PLOT_treatment %>%
+  #left_join(
+   # terra_climate_values,
+   # by = "plot_id")
 
 ```
 
 ## climate and distance matrices
 ```{r}
-
-CA_burned_plots <- data.frame(
-  plot_id,
-  latitude,
-  longitude,
-  ppt,
-  cwd,
-  tmean,
-  pet,
-  aet,
-  vpd
+climate_variables <- c(
+  "ppt_mean",
+  "def_mean",
+  "tmin_mean",
+  "tmax_mean",
+  "aet_mean",
+  "pet_mean",
+  "vpd_mean"
 )
 
-CA_control_plots <- data.frame(
-  plot_id,
-  latitude,
-  longitude,
-  ppt,
-  cwd,
-  tmean,
-  pet,
-  aet,
-  vpd
+climate_standardized <- terra_climate_values %>%
+  mutate(across(all_of(climate_variables), ~ as.numeric(scale(.)), .names = "z_{.col}"))
+
+z_vars <- paste0("z_", climate_variables)
+
+CA_burned_climate  <- climate_standardized %>% filter(condition == "burned")
+CA_control_climate <- climate_standardized %>% filter(condition == "control")
+
+CA_control_climate_cleaned <- CA_control_climate %>% 
+  filter(if_all(all_of(c(z_vars, "LAT", "LON")), ~ !is.na(.)))
+
+
+climate_distance_matrix <- rdist(
+  as.matrix(CA_burned_climate[, z_vars]),
+  as.matrix(CA_control_climate_cleaned[, z_vars])
 )
+dimnames(climate_distance_matrix) <- list(CA_burned_climate$plot_id, CA_control_climate_cleaned$plot_id)
 
-# create a data frame that puts each burned plot in comparision with a candidate control plot
-plot_pairs <- crossing(
-  burned_plots %>% rename_with(~paste0(.x, "_burned")),
-  control_plots %>% rename_with(~paste0(.x, "_control"))
-)
+geo_dist_mat <- distm(
+  as.matrix(CA_burned_climate[, c("LON", "LAT")]),
+  as.matrix(CA_control_climate_cleaned[, c("LON", "LAT")]),
+  fun = distHaversine
+) / 1000  # convert meters to km
 
+dimnames(geo_dist_mat) <- list(CA_burned_climate$plot_id, CA_control_climate_cleaned$plot_id)
 
-library(geosphere)
+norm01 <- function(m) (m - min(m)) / (max(m) - min(m))
+clim_norm <- norm01(climate_distance_matrix)
+geo_norm  <- norm01(geo_dist_mat)
+w_clim <- 0.6   # weight toward climate similarity (adjust as needed) 60% climate, 40% geographic
 
-plot_pairs$geo_distance_km <- distHaversine(
-  cbind(plot_pairs$longitude_burned,
-        plot_pairs$latitude_burned),
-  cbind(plot_pairs$longitude_control,
-        plot_pairs$latitude_control)
-) / 1000
+# combined distance across all  standardized climate variables using Euclidean distance
+combined_dist <- w_clim * norm01(climate_distance_matrix) +
+  (1 - w_clim) * norm01(geo_dist_mat)
 
+n_match <- 5
 
-# euclidean distance in climate space
-climate_vars <- c(
-  "ppt",
-  "cwd",
-  "tmean",
-  "pet",
-  "aet",
-  "vpd"
-)
+match_list <- lapply(seq_len(nrow(combined_dist)), function(i) {
+  ord <- order(combined_dist[i, ])
+  top <- ord[seq_len(n_match)]
+  data.frame(
+    burned_id = CA_burned_climate$plot_id[i],
+    control_id = CA_control_climate$plot_id[top],
+    combined_distance = combined_dist[i, top],
+    climate_distance = climate_distance_matrix[i, top],
+    geo_distance_km = geo_dist_mat[i, top],
+    rank = seq_len(n_match)
+  )
+})
 
-all_plots <- bind_rows(
-  burned_plots,
-  control_plots
-)
+matches <- bind_rows(match_list)
 
-climate_scaled <- scale(
-  all_plots[, climate_vars]
-)
+head(matches, 10)
 
-plot_pairs$climate_distance <- sqrt(
-  rowSums((plot_pairs[,paste0(climate_vars, "_burned")] - plot_pairs[,paste0(climate_vars, "_control")])^2))
-
-
-
-# plot climate distance (euclidean distance) by geographic distance 
+matches %>% count(control_id, sort = TRUE) %>% head(10)
 
 
+matched_controls <- CA_control_climate_cleaned %>% 
+  filter(plot_id %in% matches$control_id)
+
+# Compare means for one variable, e.g. tmax_mean
+mean(CA_burned_climate$tmax_mean)
+mean(matched_controls$tmax_mean)          # should be closer to burned mean...
+mean(CA_control_climate_cleaned$tmax_mean) # ...than the full unmatched pool is
+
+# Or do it for all 7 at once
+sapply(climate_variables, function(v) {
+  c(burned_mean = mean(CA_burned_climate[[v]]),
+    matched_mean = mean(matched_controls[[v]]),
+    full_pool_mean = mean(CA_control_climate_cleaned[[v]]))
+})
 
 ```
 
