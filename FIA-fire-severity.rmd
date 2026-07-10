@@ -345,6 +345,7 @@ CA_fire_summary %>%
       sum(multiple_severity))
 # 9 plots
 
+# pre_and_post, pre_only, and post_only
 CA_burned_PLOT_IDs <- CA_fire_summary %>% 
   distinct(plot_id)
 
@@ -1016,8 +1017,10 @@ hist(CA_PLOT_time_since_fire$time_since_fire)
 ## control plots
 
 ```{r}
+CA_prepost_burned_plot_id <- CA_prepost_fire_summary %>%
+  filter(status %in% c("pre_and_post", "post_only")) 
+
 # create a list/ table of lat/ long coordinates for all unique plot ID's in CA 
-hist(CA_COND$DSTRBCD1)
 
 CA_COND_control <- CA_COND_IDs %>%
   filter(
@@ -1054,6 +1057,24 @@ CA_COND_treatment <- CA_COND_IDs %>%
     )
   ) %>%
   filter(!is.na(fire_code))
+
+CA_COND_treatment <- CA_COND_IDs %>%
+  filter(
+    FORTYPCD %in% c(371, 201, 221, 222, 224, 225, 261, 922),
+    (DSTRBCD1 == 0 & DSTRBCD2 == 0 & DSTRBCD3 == 0) |
+      plot_id %in% CA_prepost_burned_plot_id$plot_id
+  ) %>%
+  mutate(
+    condition = if_else(
+      DSTRBCD1 == 0 & DSTRBCD2 == 0 & DSTRBCD3 == 0,
+      "control",
+      "burned"
+    )
+  )
+
+CA_COND_treatment %>%
+  group_by(condition) %>%
+  summarise(n_unique_plots = n_distinct(plot_id))
 
 # create a table for burned/control summaries by plot
 CA_treatment_summary <- CA_COND_IDs %>%
@@ -1233,24 +1254,36 @@ climate_variables <- c(
   "vpd_mean"
 )
 
+# how far apart are two plots, considering 7 climate variables at once? 
+# we can't calculate raw distances from these variables, it would be meaningless and skewed 
+
+# standardizing climate variables using z-scores
+# how many standard deviations above or below the average is this value?
+# z = x - mean / sd
+
 climate_standardized <- terra_climate_values %>%
   mutate(across(all_of(climate_variables), ~ as.numeric(scale(.)), .names = "z_{.col}"))
 
 z_vars <- paste0("z_", climate_variables)
+# now, each climate value is the number of standard deviations from that variable's own average
 
 CA_burned_climate  <- climate_standardized %>% filter(condition == "burned")
 CA_control_climate <- climate_standardized %>% filter(condition == "control")
 
+# if there are any plots with NAs in lat/lon it will throw NAs for everything downstream
 CA_control_climate_cleaned <- CA_control_climate %>% 
   filter(if_all(all_of(c(z_vars, "LAT", "LON")), ~ !is.na(.)))
 
-
+# rdist() (fields package) computes distances between two separate matrices — every row in matrix A vs. every row in matrix B. we don't want burned-vs-burned or control-vs-control distances, we only want burned-vs-control distances 
 climate_distance_matrix <- rdist(
   as.matrix(CA_burned_climate[, z_vars]),
   as.matrix(CA_control_climate_cleaned[, z_vars])
 )
+# assign plot_ids to climate distance matrix
 dimnames(climate_distance_matrix) <- list(CA_burned_climate$plot_id, CA_control_climate_cleaned$plot_id)
 
+# generate geographic distance matrix
+# distm() (geosphere package) computes a distance matrix between two sets of geographic coordinates, using distHaversine formula, the great-circle distance that accounts for Earth's curvature
 geo_dist_mat <- distm(
   as.matrix(CA_burned_climate[, c("LON", "LAT")]),
   as.matrix(CA_control_climate_cleaned[, c("LON", "LAT")]),
@@ -1259,15 +1292,20 @@ geo_dist_mat <- distm(
 
 dimnames(geo_dist_mat) <- list(CA_burned_climate$plot_id, CA_control_climate_cleaned$plot_id)
 
-norm01 <- function(m) (m - min(m)) / (max(m) - min(m))
+# now that we have both climate and geographic distance matrices, we want to combine them into one score by normalizing distance matrix values from 0-1
+norm01 <- function(m) (m - min(m)) / (max(m) - min(m)) # could also be done with scales::rescale() 
+
 clim_norm <- norm01(climate_distance_matrix)
 geo_norm  <- norm01(geo_dist_mat)
-w_clim <- 0.6   # weight toward climate similarity (adjust as needed) 60% climate, 40% geographic
+
+# weight toward climate similarity, over geographic proximity. 60% climate, 40% geographic
+w_clim <- 0.6   
 
 # combined distance across all  standardized climate variables using Euclidean distance
 combined_dist <- w_clim * norm01(climate_distance_matrix) +
   (1 - w_clim) * norm01(geo_dist_mat)
 
+# pick the top 5 best matched control plots per single burned plot
 n_match <- 5
 
 match_list <- lapply(seq_len(nrow(combined_dist)), function(i) {
@@ -1279,26 +1317,46 @@ match_list <- lapply(seq_len(nrow(combined_dist)), function(i) {
     combined_distance = combined_dist[i, top],
     climate_distance = climate_distance_matrix[i, top],
     geo_distance_km = geo_dist_mat[i, top],
-    rank = seq_len(n_match)
+    rank = seq_len(n_match),
+    row.names = NULL
   )
 })
 
+# 'matches' now has 5 rows per burned plot, ranked by closeness (in climate and geographic space)
 matches <- bind_rows(match_list)
-
 head(matches, 10)
 
+# lets make sure the same control plot isnt being applied to all burned plots
+# how many times did this specific control plot show up as a burned plot match?
 matches %>% count(control_id, sort = TRUE) %>% head(10)
+# 4 of the same control plots show up as a match for 10-13 burned plots
+# most popular control plot was only used for about 3% of all burned plots
 
+# lets check if those burned plots all have the same rankings for the popular control plot
+matches %>% 
+  filter(control_id == "6_2_93_54625") %>%
+  select(burned_id, control_id, rank, combined_distance)
 
+# filter control plot dataframe with the top 5 matched control plots per burned plot
 matched_controls <- CA_control_climate_cleaned %>% 
   filter(plot_id %in% matches$control_id)
 
+ggplot(matches, aes(x = geo_distance_km, y = climate_distance)) +
+  geom_point(alpha = 0.4) +
+  labs(
+    x = "Geographic distance (km)",
+    y = "Climate distance (standardized)",
+    title = "Climate distance vs. geographic distance for matched pairs"
+  ) +
+  theme_minimal()
+
+
 # Compare means for one variable, e.g. tmax_mean
 mean(CA_burned_climate$tmax_mean)
-mean(matched_controls$tmax_mean)          # should be closer to burned mean...
-mean(CA_control_climate_cleaned$tmax_mean) # ...than the full unmatched pool is
+mean(matched_controls$tmax_mean)          # should be closer to burned mean
+mean(CA_control_climate_cleaned$tmax_mean) # than the full unmatched pool 
 
-# Or do it for all 7 at once
+# Or for all 7 at once
 sapply(climate_variables, function(v) {
   c(burned_mean = mean(CA_burned_climate[[v]]),
     matched_mean = mean(matched_controls[[v]]),
@@ -1307,10 +1365,33 @@ sapply(climate_variables, function(v) {
 
 ```
 
-
+## species overlap
 ```{r}
+# now that we have our control and burned plot pairs, lets look into species overlap between each pair
+
+CA_burned_and_control_plot_id <- unique(c(matches$burned_id, matches$control_id))
+
+# lets filter CA_TREE and CA_SEEDLING for our burned and control plots
+
+CA_TREE_IDs_filtered <- CA_TREE_IDs %>%
+  filter(plot_id %in% CA_burned_and_control_plot_id)
+
+CA_SEEDLING_IDs_filtered <- CA_SEEDLING_IDs %>%
+  filter(plot_id %in% CA_burned_and_control_plot_id)
+
+# add species names to species codes using REF_SPECIES
 
 
+#Compute total abundance per species — count all tree rows per species, across every plot.
+
+
+#Compute frequency (commonness) per species — count the number of distinct plots each species appears in, divide by total number of plots.
+
+# Rank species on each metric separately, then combine the two ranks into one overall score (e.g., average rank, so a species that's #3 in abundance and #10 in frequency gets averaged into a combined rank).
+
+
+
+#Sort by the combined rank and take the top 75.
 
 ```
 
