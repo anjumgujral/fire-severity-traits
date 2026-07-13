@@ -413,11 +413,11 @@ CA_prepost_fire_summary %>%
 CA_prepost_fire_summary %>%
   distinct(plot_id, status) %>%
   count(status)
+# post_only = 106
+# pre_only = 49
+# pre_and_post = 304
 
-# post only = 106
-# pre only = 49
-# pre and post = 304
-
+# some plots are reused for surveys: the total number of unique plots is 393
 
 # how many plots are there in CA
 CA_PLOT %>%
@@ -1017,152 +1017,56 @@ hist(CA_PLOT_time_since_fire$time_since_fire)
 ## control plots
 
 ```{r}
+# bring in plot_ids for burned plots (pre_and_post, post_only)
 CA_prepost_burned_plot_id <- CA_prepost_fire_summary %>%
   filter(status %in% c("pre_and_post", "post_only")) 
 
-# create a list/ table of lat/ long coordinates for all unique plot ID's in CA 
-
-CA_COND_control <- CA_COND_IDs %>%
-  filter(
-    FORTYPCD %in% c(371, 201, 221, 222, 224, 225, 261, 922),
-    DSTRBCD1 == 0,
-    DSTRBCD2 == 0,
-    DSTRBCD3 == 0
-  )
-# 2387 unique plots have no disturbance in all years
-
-# filter CA_COND for burned and control plots
-CA_COND_treatment <- CA_COND_IDs %>%
-  filter(
-    FORTYPCD %in% c(371, 201, 221, 222, 224, 225, 261, 922)
+# filter for plots that have DSTRBCD == 0 in all columns (DSTRBCD1-3) and all rows
+CA_COND_control_summary <- CA_COND_IDs %>%
+  filter(FORTYPCD %in% c(371, 201, 221, 222, 224, 225, 261, 922)) %>%
+  group_by(plot_id) %>%
+  summarise(
+    all_zero = all(DSTRBCD1 == 0 & DSTRBCD2 == 0 & DSTRBCD3 == 0),
+    .groups = "drop"
   ) %>%
-  mutate(
-    fire_code = case_when(
-      # control plots
-      DSTRBCD1 == 0 &
-      DSTRBCD2 == 0 &
-      DSTRBCD3 == 0 ~ 0,
-
-      # burned plots
-      DSTRBCD1 %in% c(30, 31, 32) ~ DSTRBCD1,
-      DSTRBCD2 %in% c(30, 31, 32) ~ DSTRBCD2,
-      DSTRBCD3 %in% c(30, 31, 32) ~ DSTRBCD3,
-
-      TRUE ~ NA_real_
-    ),
-    condition = case_when(
-      fire_code == 0 ~ "control",
-      fire_code %in% c(30, 31, 32) ~ "burned",
-      TRUE ~ NA_character_
-    )
-  ) %>%
-  filter(!is.na(fire_code))
+  filter(all_zero) %>%
+  select(plot_id)
 
 CA_COND_treatment <- CA_COND_IDs %>%
   filter(
-    FORTYPCD %in% c(371, 201, 221, 222, 224, 225, 261, 922),
-    (DSTRBCD1 == 0 & DSTRBCD2 == 0 & DSTRBCD3 == 0) |
-      plot_id %in% CA_prepost_burned_plot_id$plot_id
+    plot_id %in% CA_prepost_burned_plot_id$plot_id |
+      plot_id %in% CA_COND_control_summary$plot_id
   ) %>%
   mutate(
     condition = if_else(
-      DSTRBCD1 == 0 & DSTRBCD2 == 0 & DSTRBCD3 == 0,
-      "control",
-      "burned"
+      plot_id %in% CA_prepost_burned_plot_id$plot_id,
+      "burned",
+      "control"
+    ),
+    fire_code = case_when(
+      condition == "control" ~ "0",
+      DSTRBCD1 %in% c(30, 31, 32) ~ as.character(DSTRBCD1),
+      DSTRBCD2 %in% c(30, 31, 32) ~ as.character(DSTRBCD2),
+      DSTRBCD3 %in% c(30, 31, 32) ~ as.character(DSTRBCD3),
+      TRUE ~ NA_character_
     )
   )
 
+# Confirm unique plot counts
 CA_COND_treatment %>%
   group_by(condition) %>%
   summarise(n_unique_plots = n_distinct(plot_id))
 
-# create a table for burned/control summaries by plot
-CA_treatment_summary <- CA_COND_IDs %>%
-  filter(
-    FORTYPCD %in% c(371, 201, 221, 222, 224, 225, 261, 922)
-  ) %>%
-  group_by(plot_id) %>%
-  summarise(
-    has_fire = any(
-      DSTRBCD1 %in% c(30,31,32) |
-      DSTRBCD2 %in% c(30,31,32) |
-      DSTRBCD3 %in% c(30,31,32)
-    ),
+# burned               393
+# control             1601
 
-    fire_code = paste(
-      sort(unique(c(
-        DSTRBCD1[DSTRBCD1 %in% c(30,31,32)],
-        DSTRBCD2[DSTRBCD2 %in% c(30,31,32)],
-        DSTRBCD3[DSTRBCD3 %in% c(30,31,32)]
-      ))),
-      collapse = ", "
-    ),
+# Pull coordinates for these plots
+CA_PLOT_coordinates <- CA_PLOT_IDs %>%
+  semi_join(CA_COND_treatment, by = "plot_id") %>%
+  distinct(plot_id, LAT, LON)
 
-    .groups = "drop"
-  ) %>%
-  mutate(
-    condition = if_else(has_fire, "burned", "control"),
-    fire_code = if_else(has_fire, fire_code, "0")
-  ) %>%
-  select(plot_id, condition, fire_code)
-
-CA_treatment_summary %>%
-  count(condition)
-# burned      434
-# control    3052
-
-# merge condition summaries with CA_PLOT, filtering for control/burned plots only
-CA_PLOT_treatment <- CA_PLOT_IDs %>%
-  semi_join(
-    CA_treatment_summary,
-    by = "plot_id"
-  ) %>%
-  left_join(
-    CA_treatment_summary,
-    by = "plot_id"
-  )
-
-CA_PLOT_treatment %>%
-  group_by(condition) %>%
-  summarise(
-    n_unique_plots = n_distinct(plot_id)
-  )
-# burned 434
-# control 3052
-
-# lets make sure that our new filtering for burned plots matches our previous filtering: 
-CA_PLOT_treatment %>%
-  filter(condition == "burned") %>%
-  distinct(plot_id) %>%
-  anti_join(
-    CA_burned_PLOT_IDs %>% distinct(plot_id),
-    by = "plot_id"
-  )
-
-CA_burned_PLOT_IDs %>%
-  distinct(plot_id) %>%
-  anti_join(
-    CA_PLOT_treatment %>%
-      filter(condition == "burned") %>%
-      distinct(plot_id),
-    by = "plot_id"
-  )
-# burned plots are identical with two different filtering methods
 
 # lets pull climate for control and burned plots 
-CA_PLOT_coordinates <- CA_PLOT_treatment[, c("plot_id", "LAT","LON")]
-
-CA_PLOT_coordinates %>%
-  group_by(plot_id) %>%
-  summarise(
-    n_coords = n_distinct(paste(LAT, LON)),
-    .groups = "drop"
-  ) %>%
-  filter(n_coords > 1)
-
-CA_PLOT_coordinates <- CA_PLOT_treatment %>%
-  select(plot_id, LAT, LON) %>%
-  distinct()
 
 # convert lat/long points in a spatial object
 CA_PLOT_coordinates_vect <- vect(
@@ -1200,17 +1104,10 @@ terra_climate_values <- terra::extract(
 
 terra_climate_values <- terra_climate_values %>%
   left_join(
-    CA_treatment_summary %>%
+    CA_COND_treatment %>%
       select(plot_id, condition, fire_code),
     by = "plot_id"
   )
-
-plot(def_mean)
-points(
-  CA_PLOT_coordinates_vect,
-  col = ifelse(terra_climate_values$condition == "burned", "red", "blue"),
-  pch = 19
-)
 
 def_df <- as.data.frame(
   def_mean,
@@ -1365,13 +1262,78 @@ sapply(climate_variables, function(v) {
 
 ```
 
+## without replacement
+```{r}
+
+without_replacement <- function(dist_mat, clim_mat, geo_mat, n_match = 5) {
+  
+  # Build a long list of every possible (burned, control) pair with its distances
+  triples <- expand.grid(
+    burned_id  = rownames(dist_mat),
+    control_id = colnames(dist_mat),
+    stringsAsFactors = FALSE
+  )
+  triples$combined_distance <- as.vector(dist_mat)
+  triples$climate_distance  <- as.vector(clim_mat)
+  triples$geo_distance_km   <- as.vector(geo_mat)
+  
+  # Sort so the best (smallest distance) pairs come first
+  triples <- triples[order(triples$combined_distance), ]
+  
+  needed   <- setNames(rep(n_match, nrow(dist_mat)), rownames(dist_mat))
+  used_ctl <- setNames(rep(FALSE, ncol(dist_mat)), colnames(dist_mat))
+  
+  results <- vector("list", nrow(dist_mat) * n_match)
+  counter <- 1
+  
+  for (k in seq_len(nrow(triples))) {
+    b <- triples$burned_id[k]
+    c <- triples$control_id[k]
+    
+    if (needed[b] > 0 && !used_ctl[c]) {
+      results[[counter]] <- data.frame(
+        burned_id         = b,
+        control_id        = c,
+        combined_distance = triples$combined_distance[k],
+        climate_distance  = triples$climate_distance[k],
+        geo_distance_km   = triples$geo_distance_km[k],
+        rank              = n_match - needed[b] + 1,
+        row.names         = NULL
+      )
+      counter <- counter + 1
+      needed[b]   <- needed[b] - 1
+      used_ctl[c] <- TRUE
+    }
+    
+    if (all(needed == 0)) break
+  }
+  
+  bind_rows(results)
+}
+
+matches_no_replacement <- without_replacement(
+  dist_mat = combined_dist,
+  clim_mat = climate_distance_matrix,
+  geo_mat  = geo_dist_mat,
+  n_match  = 3
+)
+
+matches_no_replacement %>% count(burned_id) %>% filter(n < 5)
+```
+
+
 ## species overlap
 ```{r}
 # now that we have our control and burned plot pairs, lets look into species overlap between each pair
 
-CA_burned_and_control_plot_id <- unique(c(matches$burned_id, matches$control_id))
+CA_burned_and_control_plot_id <- unique(c(matches_no_replacement$burned_id, matches_no_replacement$control_id))
+
+#1572 plots total
+#393 burned
+#1179 control
 
 # lets filter CA_TREE and CA_SEEDLING for our burned and control plots
+CA_TREE_prepost_fire
 
 CA_TREE_IDs_filtered <- CA_TREE_IDs %>%
   filter(plot_id %in% CA_burned_and_control_plot_id)
@@ -1381,18 +1343,115 @@ CA_SEEDLING_IDs_filtered <- CA_SEEDLING_IDs %>%
 
 # add species names to species codes using REF_SPECIES
 
+CA_TREE_species <- CA_TREE_IDs_filtered %>%
+  left_join(
+    REF_SPECIES %>%
+      mutate(species = paste(GENUS, SPECIES, sep = "_")) %>%
+      select(SPCD, species),
+    by = "SPCD"
+  ) %>%
+  left_join(
+    CA_COND_treatment %>% distinct(plot_id, condition),
+    by = "plot_id"
+  ) %>%
+  left_join(
+    CA_prepost_fire_summary %>% distinct(plot_id, fire_year),
+    by = "plot_id"
+  )
 
-#Compute total abundance per species — count all tree rows per species, across every plot.
-
+CA_TREE_species_filtered <- CA_TREE_species %>%
+  filter(
+    condition == "burned" | condition == "control"
+  )
+#Compute total abundance per species per plot 
+CA_species_abundance_per_plot <- CA_TREE_species_filtered %>%
+  group_by(plot_id, species) %>%
+  summarise(
+    abundance = n(),
+    .groups = "drop"
+  )
 
 #Compute frequency (commonness) per species — count the number of distinct plots each species appears in, divide by total number of plots.
+
+# abundance by species for all plots (less useful?) but frequency across plots is useful (number of times a species is present in a plot relative to the total number of plots)
+species_summary_combined <- CA_TREE_species_filtered %>%
+  group_by(species) %>%
+  summarise(
+    total_abundance = n(),
+    n_plots = n_distinct(plot_id),
+    .groups = "drop"
+  ) %>%
+  mutate(
+    frequency = n_plots / n_distinct(CA_TREE_species_filtered$plot_id)
+  ) %>%
+  arrange(desc(total_abundance))
+
+# total abundance and frequency by condition (also maybe not particularly helpful)
+species_summary_by_condition <- CA_TREE_species_filtered %>%
+  group_by(condition, species) %>%
+  summarise(
+    total_abundance = n(),
+    n_plots = n_distinct(plot_id),
+    .groups = "drop"
+  ) %>%
+  group_by(condition) %>%
+  mutate(
+    frequency = n_plots / n_distinct(CA_TREE_species_filtered$plot_id[CA_TREE_species_filtered$condition == condition])
+  ) %>%
+  ungroup() %>%
+  arrange(condition, desc(total_abundance))
+
 
 # Rank species on each metric separately, then combine the two ranks into one overall score (e.g., average rank, so a species that's #3 in abundance and #10 in frequency gets averaged into a combined rank).
 
 
-
 #Sort by the combined rank and take the top 75.
 
+top_75_species <- species_summary_combined %>%
+  mutate(
+    abundance_rank = rank(-total_abundance),
+    frequency_rank = rank(-frequency),
+    combined_rank = (abundance_rank + frequency_rank) / 2
+  ) %>%
+  arrange(combined_rank) %>%
+  slice_head(n = 75)
+
+#total number of species across both control and burned plots
+CA_TREE_species_filtered %>%
+  group_by(condition) %>%
+  summarise(n_species = n_distinct(species), .groups = "drop")
+
+CA_all_species <- CA_TREE_species_filtered %>%
+  distinct(species) %>%
+  pull(species)
+
+length(CA_all_species)
+# 67 total species
+
+# to calculate dominance (the number of indiviudals of that species in that plot) and frequency (commonness)  (the number of plots the species occurs in / total number of plots)
+
+CA_tree_count <- CA_TREE_species_filtered %>%
+  group_by(plot_id) %>%
+  summarise(total_trees_in_plot = n(), .groups = "drop")
+
+CA_species_dominance <- CA_TREE_species_filtered %>%
+  group_by(plot_id, species) %>%
+  summarise(species_count = n(), .groups = "drop") %>%
+  left_join(CA_tree_count, by = "plot_id") %>%
+  mutate(relative_abundance = species_count / total_trees_in_plot)
+
+CA_species_summary <- CA_species_dominance %>%
+  group_by(species) %>%
+  summarise(
+    n_plots_present  = n_distinct(plot_id),
+    avg_dominance    = mean(relative_abundance),
+    median_dominance = median(relative_abundance),
+    min_dominance    = min(relative_abundance),
+    max_dominance    = max(relative_abundance),
+    .groups = "drop"
+  ) %>%
+  mutate(frequency = n_plots_present / n_distinct(CA_TREE_species_filtered$plot_id)) %>%
+  arrange(desc(frequency))
 ```
 
 # expand states
@@ -1980,6 +2039,393 @@ OR_SEEDLING_species_summary <- OR_SEEDLING_post_fire_plots %>%
 summary(OR_SEEDLING_species_summary$n_seedlings)
 ```
 
+## control plots
+
+```{r}
+# bring in plot_ids for burned plots (pre_and_post, post_only)
+OR_prepost_burned_plot_id <- OR_prepost_fire_summary %>%
+  filter(status %in% c("pre_and_post", "post_only")) 
+
+# filter for plots that have DSTRBCD == 0 in all columns (DSTRBCD1-3) and all rows
+OR_COND_control_summary <- OR_COND_IDs %>%
+  filter(FORTYPCD %in% c(371, 201, 221, 222, 224, 225, 261, 922)) %>%
+  group_by(plot_id) %>%
+  summarise(
+    all_zero = all(DSTRBCD1 == 0 & DSTRBCD2 == 0 & DSTRBCD3 == 0),
+    .groups = "drop"
+  ) %>%
+  filter(all_zero) %>%
+  select(plot_id)
+
+OR_COND_treatment <- OR_COND_IDs %>%
+  filter(
+    plot_id %in% OR_prepost_burned_plot_id$plot_id |
+      plot_id %in% OR_COND_control_summary$plot_id
+  ) %>%
+  mutate(
+    condition = if_else(
+      plot_id %in% OR_prepost_burned_plot_id$plot_id,
+      "burned",
+      "control"
+    ),
+    fire_code = case_when(
+      condition == "control" ~ "0",
+      DSTRBCD1 %in% c(30, 31, 32) ~ as.character(DSTRBCD1),
+      DSTRBCD2 %in% c(30, 31, 32) ~ as.character(DSTRBCD2),
+      DSTRBCD3 %in% c(30, 31, 32) ~ as.character(DSTRBCD3),
+      TRUE ~ NA_character_
+    )
+  )
+
+# Confirm unique plot counts
+OR_COND_treatment %>%
+  group_by(condition) %>%
+  summarise(n_unique_plots = n_distinct(plot_id))
+
+# burned               553
+# control             4813
+
+# Pull coordinates for these plots
+OR_PLOT_coordinates <- OR_PLOT_IDs %>%
+  semi_join(OR_COND_treatment, by = "plot_id") %>%
+  distinct(plot_id, LAT, LON)
+
+
+# lets pull climate for control and burned plots 
+
+# convert lat/long points in a spatial object
+OR_PLOT_coordinates_vect <- vect(
+  OR_PLOT_coordinates, geom = c("LON", "LAT"), crs = "EPSG:4326")
+
+# extract climate for all lat/long coordinates (all unique plot IDs)
+
+
+
+OR_terra_climate_values <- terra::extract(
+  terra_climate_stack,
+  OR_PLOT_coordinates_vect
+) %>%
+  bind_cols(
+    OR_PLOT_coordinates %>% select(plot_id, LAT, LON)
+  ) %>%
+  select(plot_id, LAT, LON, everything(), -ID)
+
+OR_terra_climate_values <- OR_terra_climate_values %>%
+  left_join(
+    OR_COND_treatment %>%
+      select(plot_id, condition, fire_code),
+    by = "plot_id"
+  )
+
+points(
+  OR_PLOT_coordinates_vect,
+  col = ifelse(OR_terra_climate_values$condition == "burned", "red", "blue"),
+  pch = 19
+)
+
+def_df <- as.data.frame(
+  def_mean,
+  xy = TRUE
+)
+
+ggplot(
+  OR_terra_climate_values,
+  aes(
+    x = LON,
+    y = LAT,
+    color = def_mean
+  )
+) +
+  geom_point(
+    size = 3
+  ) +
+  scale_color_viridis_c(
+    name = "Climatic water deficit\n(mm)"
+  ) +
+  coord_equal() +
+  theme_classic()
+
+# join climate back to main data frame with all plots 
+#CA_PLOT_climate <- CA_PLOT_treatment %>%
+  #left_join(
+   # terra_climate_values,
+   # by = "plot_id")
+
+```
+
+## climate and distance matrices
+```{r}
+# how far apart are two plots, considering 7 climate variables at once? 
+# we can't calculate raw distances from these variables, it would be meaningless and skewed 
+
+# standardizing climate variables using z-scores
+# how many standard deviations above or below the average is this value?
+# z = x - mean / sd
+
+OR_climate_standardized <- OR_terra_climate_values %>%
+  mutate(across(all_of(climate_variables), ~ as.numeric(scale(.)), .names = "z_{.col}"))
+
+z_vars <- paste0("z_", climate_variables)
+# now, each climate value is the number of standard deviations from that variable's own average
+
+OR_burned_climate  <- OR_climate_standardized %>% filter(condition == "burned")
+OR_control_climate <- OR_climate_standardized %>% filter(condition == "control")
+
+# if there are any plots with NAs in lat/lon it will throw NAs for everything downstream
+OR_control_climate_cleaned <- OR_control_climate %>% 
+  filter(if_all(all_of(c(z_vars, "LAT", "LON")), ~ !is.na(.)))
+
+# rdist() (fields package) computes distances between two separate matrices — every row in matrix A vs. every row in matrix B. we don't want burned-vs-burned or control-vs-control distances, we only want burned-vs-control distances 
+OR_climate_distance_matrix <- rdist(
+  as.matrix(OR_burned_climate[, z_vars]),
+  as.matrix(OR_control_climate_cleaned[, z_vars])
+)
+# assign plot_ids to climate distance matrix
+dimnames(OR_climate_distance_matrix) <- list(OR_burned_climate$plot_id, OR_control_climate_cleaned$plot_id)
+
+# generate geographic distance matrix
+# distm() (geosphere package) computes a distance matrix between two sets of geographic coordinates, using distHaversine formula, the great-circle distance that accounts for Earth's curvature
+OR_geo_dist_mat <- distm(
+  as.matrix(OR_burned_climate[, c("LON", "LAT")]),
+  as.matrix(OR_control_climate_cleaned[, c("LON", "LAT")]),
+  fun = distHaversine
+) / 1000  # convert meters to km
+
+dimnames(OR_geo_dist_mat) <- list(OR_burned_climate$plot_id, OR_control_climate_cleaned$plot_id)
+
+# now that we have both climate and geographic distance matrices, we want to combine them into one score by normalizing distance matrix values from 0-1
+norm01 <- function(m) (m - min(m)) / (max(m) - min(m)) # could also be done with scales::rescale() 
+
+OR_clim_norm <- norm01(OR_climate_distance_matrix)
+OR_geo_norm  <- norm01(OR_geo_dist_mat)
+
+# weight toward climate similarity, over geographic proximity. 60% climate, 40% geographic
+w_clim <- 0.6   
+
+# combined distance across all  standardized climate variables using Euclidean distance
+OR_combined_dist <- w_clim * norm01(OR_climate_distance_matrix) +
+  (1 - w_clim) * norm01(OR_geo_dist_mat)
+
+# pick the top 5 best matched control plots per single burned plot
+n_match <- 5
+
+OR_match_list <- lapply(seq_len(nrow(OR_combined_dist)), function(i) {
+  ord <- order(OR_combined_dist[i, ])
+  top <- ord[seq_len(n_match)]
+  data.frame(
+    burned_id = OR_burned_climate$plot_id[i],
+    control_id = OR_control_climate$plot_id[top],
+    combined_distance = OR_combined_dist[i, top],
+    climate_distance = OR_climate_distance_matrix[i, top],
+    geo_distance_km = OR_geo_dist_mat[i, top],
+    rank = seq_len(n_match),
+    row.names = NULL
+  )
+})
+
+# 'matches' now has 5 rows per burned plot, ranked by closeness (in climate and geographic space)
+OR_matches <- bind_rows(OR_match_list)
+head(OR_matches, 10)
+
+# lets make sure the same control plot isnt being applied to all burned plots
+# how many times did this specific control plot show up as a burned plot match?
+OR_matches %>% count(control_id, sort = TRUE) %>% head(10)
+# 4 of the same control plots show up as a match for 10-13 burned plots
+# most popular control plot was only used for about 3% of all burned plots
+
+
+# filter control plot dataframe with the top 5 matched control plots per burned plot
+OR_matched_controls <- OR_control_climate_cleaned %>% 
+  filter(plot_id %in% OR_matches$control_id)
+
+ggplot(OR_matches, aes(x = geo_distance_km, y = climate_distance)) +
+  geom_point(alpha = 0.4) +
+  labs(
+    x = "Geographic distance (km)",
+    y = "Climate distance (standardized)",
+    title = "Climate distance vs. geographic distance for matched pairs"
+  ) +
+  theme_minimal()
+
+```
+
+## without replacement
+```{r}
+
+without_replacement <- function(dist_mat, clim_mat, geo_mat, n_match = 5) {
+  
+  # Build a long list of every possible (burned, control) pair with its distances
+  triples <- expand.grid(
+    burned_id  = rownames(dist_mat),
+    control_id = colnames(dist_mat),
+    stringsAsFactors = FALSE
+  )
+  triples$combined_distance <- as.vector(dist_mat)
+  triples$climate_distance  <- as.vector(clim_mat)
+  triples$geo_distance_km   <- as.vector(geo_mat)
+  
+  # Sort so the best (smallest distance) pairs come first
+  triples <- triples[order(triples$combined_distance), ]
+  
+  needed   <- setNames(rep(n_match, nrow(dist_mat)), rownames(dist_mat))
+  used_ctl <- setNames(rep(FALSE, ncol(dist_mat)), colnames(dist_mat))
+  
+  results <- vector("list", nrow(dist_mat) * n_match)
+  counter <- 1
+  
+  for (k in seq_len(nrow(triples))) {
+    b <- triples$burned_id[k]
+    c <- triples$control_id[k]
+    
+    if (needed[b] > 0 && !used_ctl[c]) {
+      results[[counter]] <- data.frame(
+        burned_id         = b,
+        control_id        = c,
+        combined_distance = triples$combined_distance[k],
+        climate_distance  = triples$climate_distance[k],
+        geo_distance_km   = triples$geo_distance_km[k],
+        rank              = n_match - needed[b] + 1,
+        row.names         = NULL
+      )
+      counter <- counter + 1
+      needed[b]   <- needed[b] - 1
+      used_ctl[c] <- TRUE
+    }
+    
+    if (all(needed == 0)) break
+  }
+  
+  bind_rows(results)
+}
+
+OR_matches_no_replacement <- without_replacement(
+  dist_mat = OR_combined_dist,
+  clim_mat = OR_climate_distance_matrix,
+  geo_mat  = OR_geo_dist_mat,
+  n_match  = 3
+)
+
+OR_matches_no_replacement %>% count(burned_id) %>% filter(n < 5)
+```
+
+
+## species overlap
+```{r}
+# now that we have our control and burned plot pairs, lets look into species overlap between each pair
+
+OR_burned_and_control_plot_id <- unique(c(OR_matches_no_replacement$burned_id, OR_matches_no_replacement$control_id))
+
+#2212 plots total
+# burned
+# control
+
+# lets filter CA_TREE and CA_SEEDLING for our burned and control plots
+
+OR_TREE_IDs_filtered <- OR_TREE_IDs %>%
+  filter(plot_id %in% OR_burned_and_control_plot_id)
+
+
+# add species names to species codes using REF_SPECIES
+
+OR_TREE_species <- OR_TREE_IDs_filtered %>%
+  left_join(
+    REF_SPECIES %>%
+      mutate(species_name = paste(GENUS, SPECIES, sep = "_")) %>%
+      select(SPCD, species_name),
+    by = "SPCD"
+  ) %>%
+  left_join(
+    OR_COND_treatment %>% distinct(plot_id, condition),
+    by = "plot_id"
+  ) %>%
+  left_join(
+    OR_prepost_fire_summary %>% distinct(plot_id, fire_year),
+    by = "plot_id"
+  )
+
+OR_TREE_species_filtered <- OR_TREE_species %>%
+  filter(
+    condition == "burned" | condition == "control"
+  )
+
+#Compute total abundance per species — count all tree rows per species, across every plot.
+#Compute frequency (commonness) per species — count the number of distinct plots each species appears in, divide by total number of plots.
+
+# for all plots
+OR_species_summary_combined <- OR_TREE_species_filtered %>%
+  group_by(species_name) %>%
+  summarise(
+    total_abundance = n(),
+    n_plots = n_distinct(plot_id),
+    .groups = "drop"
+  ) %>%
+  mutate(
+    frequency = n_plots / n_distinct(OR_TREE_species_filtered$plot_id)
+  ) %>%
+  arrange(desc(total_abundance))
+
+# by condition
+OR_species_summary_by_condition <- OR_TREE_species_filtered %>%
+  group_by(condition, species_name) %>%
+  summarise(
+    total_abundance = n(),
+    n_plots = n_distinct(plot_id),
+    .groups = "drop"
+  ) %>%
+  group_by(condition) %>%
+  mutate(
+    frequency = n_plots / n_distinct(OR_TREE_species_filtered$plot_id[OR_TREE_species_filtered$condition == condition])
+  ) %>%
+  ungroup() %>%
+  arrange(condition, desc(total_abundance))
+
+
+# Rank species on each metric separately, then combine the two ranks into one overall score (e.g., average rank, so a species that's #3 in abundance and #10 in frequency gets averaged into a combined rank).
+
+#Sort by the combined rank and take the top 75.
+
+OR_top_75_species <- OR_species_summary_combined %>%
+  mutate(
+    abundance_rank = rank(-total_abundance),
+    frequency_rank = rank(-frequency),
+    combined_rank = (abundance_rank + frequency_rank) / 2
+  ) %>%
+  arrange(combined_rank) %>%
+  slice_head(n = 75)
+# 53 species total
+
+#total number of species across both control and burned plots
+OR_TREE_species_filtered %>%
+  group_by(condition) %>%
+  summarise(n_species = n_distinct(species_name), .groups = "drop")
+
+OR_all_species <- OR_TREE_species_filtered %>%
+  distinct(species_name) %>%
+  pull(species_name)
+
+length(OR_all_species)
+# 53 total species
+
+```
+
+```{r}
+
+# species found in both states
+species_shared_CA_OR <- intersect(CA_all_species, OR_all_species)
+length(species_shared_CA_OR)
+
+# species found only in CA
+species_only_CA <- setdiff(CA_all_species, OR_all_species)
+length(species_only_CA)
+
+# species found only in OR
+species_only_OR <- setdiff(OR_all_species, CA_all_species)
+length(species_only_OR)
+
+# sanity check: total unique species across both states combined
+length(union(CA_all_species, OR_all_species))
+```
+
 #WA
 ### fire only plots
 ```{r}
@@ -2563,6 +3009,309 @@ WA_SEEDLING_species_summary <- WA_SEEDLING_post_fire_plots %>%
     by = "SPCD") %>%
   mutate(species = paste(GENUS, SPECIES, sep = "_"))
 ```
+
+## control plots
+```{r}
+# bring in plot_ids for burned plots (pre_and_post, post_only)
+WA_prepost_burned_plot_id <- WA_prepost_fire_summary %>%
+  filter(status %in% c("pre_and_post", "post_only")) 
+
+# filter for plots that have DSTRBCD == 0 in all columns (DSTRBCD1-3) and all rows
+WA_COND_control_summary <- WA_COND_IDs %>%
+  filter(FORTYPCD %in% c(371, 201, 221, 222, 224, 225, 261, 922)) %>%
+  group_by(plot_id) %>%
+  summarise(
+    all_zero = all(DSTRBCD1 == 0 & DSTRBCD2 == 0 & DSTRBCD3 == 0),
+    .groups = "drop"
+  ) %>%
+  filter(all_zero) %>%
+  select(plot_id)
+
+WA_COND_treatment <- WA_COND_IDs %>%
+  filter(
+    plot_id %in% WA_prepost_burned_plot_id$plot_id |
+      plot_id %in% WA_COND_control_summary$plot_id
+  ) %>%
+  mutate(
+    condition = if_else(
+      plot_id %in% WA_prepost_burned_plot_id$plot_id,
+      "burned",
+      "control"
+    ),
+    fire_code = case_when(
+      condition == "control" ~ "0",
+      DSTRBCD1 %in% c(30, 31, 32) ~ as.character(DSTRBCD1),
+      DSTRBCD2 %in% c(30, 31, 32) ~ as.character(DSTRBCD2),
+      DSTRBCD3 %in% c(30, 31, 32) ~ as.character(DSTRBCD3),
+      TRUE ~ NA_character_
+    )
+  )
+
+# Confirm unique plot counts
+WA_COND_treatment %>%
+  group_by(condition) %>%
+  summarise(n_unique_plots = n_distinct(plot_id))
+
+# Pull coordinates for these plots
+WA_PLOT_coordinates <- WA_PLOT_IDs %>%
+  semi_join(WA_COND_treatment, by = "plot_id") %>%
+  distinct(plot_id, LAT, LON)
+
+# convert lat/long points in a spatial object
+WA_PLOT_coordinates_vect <- vect(
+  WA_PLOT_coordinates, geom = c("LON", "LAT"), crs = "EPSG:4326")
+
+# extract climate for all lat/long coordinates (all unique plot IDs)
+WA_terra_climate_values <- terra::extract(
+  terra_climate_stack,
+  WA_PLOT_coordinates_vect
+) %>%
+  bind_cols(
+    WA_PLOT_coordinates %>% select(plot_id, LAT, LON)
+  ) %>%
+  select(plot_id, LAT, LON, everything(), -ID)
+
+WA_terra_climate_values <- WA_terra_climate_values %>%
+  left_join(
+    WA_COND_treatment %>%
+      select(plot_id, condition, fire_code),
+    by = "plot_id"
+  )
+
+points(
+  WA_PLOT_coordinates_vect,
+  col = ifelse(WA_terra_climate_values$condition == "burned", "red", "blue"),
+  pch = 19
+)
+
+ggplot(
+  WA_terra_climate_values,
+  aes(
+    x = LON,
+    y = LAT,
+    color = def_mean
+  )
+) +
+  geom_point(
+    size = 3
+  ) +
+  scale_color_viridis_c(
+    name = "Climatic water deficit\n(mm)"
+  ) +
+  coord_equal() +
+  theme_classic()
+```
+
+## climate and distance matrices
+```{r}
+WA_climate_standardized <- WA_terra_climate_values %>%
+  mutate(across(all_of(climate_variables), ~ as.numeric(scale(.)), .names = "z_{.col}"))
+
+WA_burned_climate  <- WA_climate_standardized %>% filter(condition == "burned")
+WA_control_climate <- WA_climate_standardized %>% filter(condition == "control")
+
+WA_control_climate_cleaned <- WA_control_climate %>% 
+  filter(if_all(all_of(c(z_vars, "LAT", "LON")), ~ !is.na(.)))
+
+WA_climate_distance_matrix <- rdist(
+  as.matrix(WA_burned_climate[, z_vars]),
+  as.matrix(WA_control_climate_cleaned[, z_vars])
+)
+dimnames(WA_climate_distance_matrix) <- list(WA_burned_climate$plot_id, WA_control_climate_cleaned$plot_id)
+
+WA_geo_dist_mat <- distm(
+  as.matrix(WA_burned_climate[, c("LON", "LAT")]),
+  as.matrix(WA_control_climate_cleaned[, c("LON", "LAT")]),
+  fun = distHaversine
+) / 1000
+
+dimnames(WA_geo_dist_mat) <- list(WA_burned_climate$plot_id, WA_control_climate_cleaned$plot_id)
+
+WA_clim_norm <- norm01(WA_climate_distance_matrix)
+WA_geo_norm  <- norm01(WA_geo_dist_mat)
+
+WA_combined_dist <- w_clim * norm01(WA_climate_distance_matrix) +
+  (1 - w_clim) * norm01(WA_geo_dist_mat)
+
+n_match <- 5
+
+WA_match_list <- lapply(seq_len(nrow(WA_combined_dist)), function(i) {
+  ord <- order(WA_combined_dist[i, ])
+  top <- ord[seq_len(n_match)]
+  data.frame(
+    burned_id = WA_burned_climate$plot_id[i],
+    control_id = WA_control_climate$plot_id[top],
+    combined_distance = WA_combined_dist[i, top],
+    climate_distance = WA_climate_distance_matrix[i, top],
+    geo_distance_km = WA_geo_dist_mat[i, top],
+    rank = seq_len(n_match),
+    row.names = NULL
+  )
+})
+
+WA_matches <- bind_rows(WA_match_list)
+head(WA_matches, 10)
+
+WA_matches %>% count(control_id, sort = TRUE) %>% head(10)
+
+WA_matched_controls <- WA_control_climate_cleaned %>% 
+  filter(plot_id %in% WA_matches$control_id)
+
+ggplot(WA_matches, aes(x = geo_distance_km, y = climate_distance)) +
+  geom_point(alpha = 0.4) +
+  labs(
+    x = "Geographic distance (km)",
+    y = "Climate distance (standardized)",
+    title = "Climate distance vs. geographic distance for matched pairs"
+  ) +
+  theme_minimal()
+```
+
+## without replacement
+```{r}
+WA_matches_no_replacement <- without_replacement(
+  dist_mat = WA_combined_dist,
+  clim_mat = WA_climate_distance_matrix,
+  geo_mat  = WA_geo_dist_mat,
+  n_match  = 3
+)
+
+WA_matches_no_replacement %>% count(burned_id) %>% filter(n < 3)
+```
+
+## species overlap
+```{r}
+
+WA_burned_and_control_plot_id <- unique(c(WA_matches_no_replacement$burned_id, WA_matches_no_replacement$control_id))
+
+WA_TREE_IDs_filtered <- WA_TREE_IDs %>%
+  filter(plot_id %in% WA_burned_and_control_plot_id)
+
+WA_TREE_species <- WA_TREE_IDs_filtered %>%
+  left_join(
+    REF_SPECIES %>%
+      mutate(species_name = paste(GENUS, SPECIES, sep = "_")) %>%
+      select(SPCD, species_name),
+    by = "SPCD"
+  ) %>%
+  left_join(
+    WA_COND_treatment %>% distinct(plot_id, condition),
+    by = "plot_id"
+  ) %>%
+  left_join(
+    WA_prepost_fire_summary %>% distinct(plot_id, fire_year),
+    by = "plot_id"
+  )
+
+WA_TREE_species_filtered <- WA_TREE_species %>%
+  filter(
+    condition == "burned" | condition == "control"
+  )
+
+WA_species_summary_combined <- WA_TREE_species_filtered %>%
+  group_by(species_name) %>%
+  summarise(
+    total_abundance = n(),
+    n_plots = n_distinct(plot_id),
+    .groups = "drop"
+  ) %>%
+  mutate(
+    frequency = n_plots / n_distinct(WA_TREE_species_filtered$plot_id)
+  ) %>%
+  arrange(desc(total_abundance))
+
+WA_species_summary_by_condition <- WA_TREE_species_filtered %>%
+  group_by(condition, species_name) %>%
+  summarise(
+    total_abundance = n(),
+    n_plots = n_distinct(plot_id),
+    .groups = "drop"
+  ) %>%
+  group_by(condition) %>%
+  mutate(
+    frequency = n_plots / n_distinct(WA_TREE_species_filtered$plot_id[WA_TREE_species_filtered$condition == condition])
+  ) %>%
+  ungroup() %>%
+  arrange(condition, desc(total_abundance))
+
+WA_top_75_species <- WA_species_summary_combined %>%
+  mutate(
+    abundance_rank = rank(-total_abundance),
+    frequency_rank = rank(-frequency),
+    combined_rank = (abundance_rank + frequency_rank) / 2
+  ) %>%
+  arrange(combined_rank) %>%
+  slice_head(n = 75)
+
+WA_TREE_species_filtered %>%
+  group_by(condition) %>%
+  summarise(n_species = n_distinct(species_name), .groups = "drop")
+
+WA_all_species <- WA_TREE_species_filtered %>%
+  distinct(species_name) %>%
+  pull(species_name)
+
+length(WA_all_species)
+
+```
+
+# CA, WA, OR species list
+
+```{r}
+CA_OR_WA_species_lists <- list(
+  CA = CA_all_species,
+  OR = OR_all_species,
+  WA = WA_all_species
+)
+
+# species found in ALL THREE states
+CA_OR_WA_species <- Reduce(intersect, CA_OR_WA_species_lists)
+length(CA_OR_WA_species)
+
+# total unique species across all three states combined
+CA_OR_WA_species_overlap <- Reduce(union, CA_OR_WA_species_lists)
+length(CA_OR_WA_species_overlap)
+
+# species found in exactly one state only (not shared with either other state)
+length(setdiff(CA_all_species, union(OR_all_species, WA_all_species)))
+length(setdiff(OR_all_species, union(CA_all_species, WA_all_species)))
+length(setdiff(WA_all_species, union(CA_all_species, OR_all_species)))
+
+# 78 unique species across all states, 48 shared and 30 unique
+
+
+# are burned plot species much different than control plot species
+# CA
+CA_species_burned  <- CA_TREE_species_filtered %>% filter(condition == "burned")  %>% distinct(species_name) %>% pull(species_name)
+CA_species_control <- CA_TREE_species_filtered %>% filter(condition == "control") %>% distinct(species_name) %>% pull(species_name)
+
+length(CA_species_burned) # 49 species
+length(CA_species_control) # 60 species
+length(intersect(CA_species_burned, CA_species_control)) # 44 species shared
+length(setdiff(CA_species_burned, CA_species_control)) # 5 in burned only
+length(setdiff(CA_species_control, CA_species_burned)) # 16 in control-only
+
+# OR
+OR_species_burned  <- OR_TREE_species_filtered %>% filter(condition == "burned")  %>% distinct(species_name) %>% pull(species_name)
+OR_species_control <- OR_TREE_species_filtered %>% filter(condition == "control") %>% distinct(species_name) %>% pull(species_name)
+
+length(OR_species_burned) # 44 species
+length(OR_species_control) # 51 species
+length(intersect(OR_species_burned, OR_species_control)) # 42 species shared
+length(setdiff(OR_species_burned, OR_species_control)) # 2 in burned only
+length(setdiff(OR_species_control, OR_species_burned)) # 9 in control only
+
+# WA
+WA_species_burned  <- WA_TREE_species_filtered %>% filter(condition == "burned")  %>% distinct(species_name) %>% pull(species_name)
+WA_species_control <- WA_TREE_species_filtered %>% filter(condition == "control") %>% distinct(species_name) %>% pull(species_name)
+
+length(WA_species_burned) # 25 species
+length(WA_species_control) # 31 species
+length(intersect(WA_species_burned, WA_species_control)) # 23 species shared
+length(setdiff(WA_species_burned, WA_species_control)) # 2 in burned only
+length(setdiff(WA_species_control, WA_species_burned)) # 8 in control only 
+```
+
 
 # species list
 ```{r}
