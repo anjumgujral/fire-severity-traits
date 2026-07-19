@@ -1017,6 +1017,10 @@ hist(CA_PLOT_time_since_fire$time_since_fire)
 ## control plots
 
 ```{r}
+
+# full forest types
+c(201, 202, 221, 222, 224, 225, 226, 241, 261, 262, 263, 264, 265, 267, 268, 270, 271, 281, 301, 304, 305, 321, 341, 342, 361, 365, 371, 722, 911, 912, 922, 923, 933, 941, 961)
+
 # bring in plot_ids for burned plots (pre_and_post, post_only)
 CA_prepost_burned_plot_id <- CA_prepost_fire_summary %>%
   filter(status %in% c("pre_and_post", "post_only")) 
@@ -1428,6 +1432,9 @@ CA_all_species <- CA_TREE_species_filtered %>%
 length(CA_all_species)
 # 67 total species
 
+
+
+
 # to calculate dominance (the number of indiviudals of that species in that plot) and frequency (commonness)  (the number of plots the species occurs in / total number of plots)
 
 CA_tree_count <- CA_TREE_species_filtered %>%
@@ -1452,7 +1459,273 @@ CA_species_summary <- CA_species_dominance %>%
   ) %>%
   mutate(frequency = n_plots_present / n_distinct(CA_TREE_species_filtered$plot_id)) %>%
   arrange(desc(frequency))
+
+# lets check whether dominant and common species differ by condition (burned vs control)
+
+CA_species_dominance_condition <- CA_species_dominance %>%
+  left_join(
+    CA_TREE_species_filtered %>% distinct(plot_id, condition),
+    by = "plot_id"
+  )
+
+# now summarize by condition + species instead of species alone
+CA_species_summary_by_condition <- CA_species_dominance_condition %>%
+  group_by(condition, species) %>%
+  summarise(
+    n_plots_present  = n_distinct(plot_id),
+    avg_dominance    = mean(relative_abundance),
+    median_dominance = median(relative_abundance),
+    min_dominance    = min(relative_abundance),
+    max_dominance    = max(relative_abundance),
+    .groups = "drop"
+  ) %>%
+  group_by(condition) %>%
+  mutate(
+    frequency = n_plots_present / n_distinct(CA_TREE_species_filtered$plot_id[CA_TREE_species_filtered$condition == condition])
+  ) %>%
+  ungroup() %>%
+  arrange(condition, desc(frequency))
+
+CA_species_condition_comparison <- CA_species_summary_by_condition %>%
+  select(condition, species, frequency, median_dominance) %>%
+  pivot_wider(
+    names_from = condition,
+    values_from = c(frequency, median_dominance)
+  ) %>%
+  mutate(
+    frequency_diff = frequency_burned - frequency_control,
+    dominance_diff = median_dominance_burned - median_dominance_control
+  ) %>%
+  arrange(desc(abs(dominance_diff)))
+
+library(ggrepel)
+
+CA_species_condition_comparison %>%
+  filter(!is.na(dominance_diff), !is.na(frequency_diff)) %>%
+  ggplot(aes(x = frequency_diff, y = dominance_diff, label = species)) +
+  geom_hline(yintercept = 0, linetype = "dashed", color = "gray70") +
+  geom_vline(xintercept = 0, linetype = "dashed", color = "gray70") +
+  geom_point(alpha = 0.6, size = 2) +
+  geom_text_repel(size = 3, max.overlaps = 15) +
+  labs(
+    x = "Frequency difference (burned − control)",
+    y = "Dominance difference (burned − control)",
+    title = "Burned - control species dominance (median)"
+  ) +
+  theme_minimal()
+
+
+#  is the number of species recruiting in control plots is greater than burned
+
+CA_SEEDLING_condition_filtered <- CA_SEEDLING_IDs %>%
+  filter(plot_id %in% CA_burned_and_control_plot_id) %>%
+  left_join(
+    CA_COND_treatment %>% distinct(plot_id, condition),
+    by = "plot_id"
+  )
+
+CA_SEEDLING_species_summary_condition <- CA_SEEDLING_condition_filtered %>%
+  group_by(plot_id, condition, SPCD) %>%
+  summarise(n_seedlings = sum(TREECOUNT, na.rm = TRUE), .groups = "drop") %>%
+  left_join(REF_SPECIES %>% dplyr::select(SPCD, GENUS, SPECIES), by = "SPCD") %>%
+  mutate(species = paste(GENUS, SPECIES, sep = "_"))
+
+CA_SEEDLING_plot_summary_condition <- CA_SEEDLING_species_summary_condition %>%
+  group_by(plot_id, condition) %>%
+  summarise(
+    n_seedling_species = n_distinct(SPCD),
+    n_seedlings = sum(n_seedlings, na.rm = TRUE),
+    .groups = "drop"
+  )
+
+CA_SEEDLING_plot_summary_condition %>%
+  ggplot(aes(x = n_seedling_species, fill = condition)) +
+  geom_histogram(binwidth = 1, color = "white", position = "identity", alpha = 0.6) +
+  facet_wrap(~condition, ncol = 1) +
+  theme_bw() +
+  labs(
+    x = "Number of seedling species per plot",
+    y = "Number of plots",
+    title = "Seedling species richness: burned vs. control"
+  )
+
+CA_SEEDLING_plot_summary_condition %>%
+  ggplot(aes(x = condition, y = n_seedling_species, fill = condition)) +
+  geom_boxplot(alpha = 0.6) +
+  theme_bw() +
+  labs(
+    x = NULL,
+    y = "Number of seedling species per plot",
+    title = "Seedling species richness: burned vs. control"
+  )
+
+CA_seedling_richness_summary_by_condition <- CA_SEEDLING_plot_summary_condition %>%
+  group_by(condition) %>%
+  summarise(
+    mean_richness   = mean(n_seedling_species),
+    median_richness = median(n_seedling_species),
+    n_plots         = n(),
+    .groups = "drop"
+  )
+
+CA_seedling_richness_summary_by_condition
+
+CA_SEEDLING_species_summary_condition %>%
+  group_by(species, condition, plot_id) %>%
+  summarise(n_seedlings = sum(n_seedlings), .groups = "drop") %>%
+  group_by(species, condition) %>%
+  summarise(mean_per_plot = mean(n_seedlings), .groups = "drop") %>%
+  group_by(condition) %>%
+  slice_max(mean_per_plot, n = 20) %>%
+  ungroup() %>%
+  ggplot(aes(x = reorder_within(species, mean_per_plot, condition), y = mean_per_plot, fill = condition)) +
+  geom_col() +
+  coord_flip() +
+  scale_x_reordered() +
+  facet_wrap(~condition, scales = "free_y") +
+  labs(
+    x = "species",
+    y = "average # seedlings per plot",
+    title = "Average seedling abundance per species per plot: burned vs. control"
+  ) +
+  theme_bw()
+
+CA_SEEDLING_species_summary_condition %>%
+  group_by(plot_id, condition, species) %>%
+  summarise(n_seedlings = sum(n_seedlings), .groups = "drop") %>%
+  mutate(n_seedlings_capped = pmin(n_seedlings, 50)) %>%
+  ggplot(aes(x = species, y = n_seedlings_capped, fill = condition)) +
+  geom_boxplot(alpha = 0.6) +
+  coord_flip() +
+  facet_wrap(~condition, scales = "free_y") +
+  labs(
+    x = "species",
+    y = "seedlings per plot (capped at 50)",
+    title = "Seedling abundance per species per plot: burned vs. control"
+  ) +
+  theme_bw()
+
+summary(CA_SEEDLING_plot_summary_condition$n_seedling_species[CA_SEEDLING_plot_summary_condition$condition == "burned"])
+
+summary(CA_SEEDLING_plot_summary_condition$n_seedling_species[CA_SEEDLING_plot_summary_condition$condition == "control"])
+
+CA_SEEDLING_plot_summary_condition %>%
+  ggplot(aes(x = n_seedling_species, fill = condition)) +
+  geom_histogram(binwidth = 1, color = "white", position = "identity", alpha = 0.6) +
+  facet_wrap(~condition, ncol = 1) +
+  theme_bw() +
+  labs(
+    x = "Number of seedling species per plot",
+    y = "Number of plots",
+    title = "Seedling species richness: burned vs. control"
+  )
+
 ```
+
+## whole plot network
+```{r}
+
+# filter CA_COND_IDs for forest types only, no disturbance filtering
+CA_COND_forest_type <- CA_COND_IDs %>%
+  filter(FORTYPCD %in% c(201, 202, 221, 222, 224, 225, 226, 241, 261, 262, 263, 264, 265, 267, 268, 270, 271, 281, 301, 304, 305, 321, 341, 342, 361, 365, 371, 722, 911, 912, 922, 923, 933, 941, 961))
+           
+(371, 201, 221, 222, 224, 225, 261, 922))
+
+
+
+# get the unique plot_ids that qualify
+CA_forest_type_plot_id <- CA_COND_forest_type %>%
+  distinct(plot_id) %>%
+  pull(plot_id)
+
+length(CA_forest_type_plot_id)
+
+# filter CA_PLOT_IDs for those plot_ids
+CA_PLOT_forest_type <- CA_PLOT_IDs %>%
+  filter(plot_id %in% CA_forest_type_plot_id)
+
+# filter CA_TREE_IDs for those plot_ids
+CA_TREE_forest_type <- CA_TREE_IDs %>%
+  filter(plot_id %in% CA_forest_type_plot_id)
+
+nrow(CA_PLOT_forest_type)
+n_distinct(CA_TREE_forest_type$plot_id)
+
+CA_TREE_forest_type_species <- CA_TREE_forest_type %>%
+  left_join(
+    REF_SPECIES %>%
+      mutate(species = paste(GENUS, SPECIES, sep = "_")) %>%
+      select(SPCD, species),
+    by = "SPCD"
+  )
+sum(is.na(CA_TREE_forest_type_species$species))
+n_distinct(CA_TREE_forest_type_species$species)
+
+# how different are the species from this workflow and the previous control plot filtering by climate?
+
+# species from your burned/control workflow (already built)
+CA_all_species   # from earlier: distinct species across CA_TREE_species_filtered
+
+# species from your new forest-type-only workflow
+CA_forest_type_all_species <- CA_TREE_forest_type_species %>%
+  distinct(species) %>%
+  pull(species)
+
+length(CA_forest_type_all_species)
+
+# species found in both workflows
+intersect(CA_all_species, CA_forest_type_all_species)
+
+# species found only in the burned/control workflow
+setdiff(CA_all_species, CA_forest_type_all_species)
+
+# species found only in the forest-type-only workflow
+setdiff(CA_forest_type_all_species, CA_all_species)
+
+
+# make sure the species coming out of SEEDLING match TREE
+# filter CA_SEEDLING_IDs for those plot_ids
+CA_SEEDLING_forest_type <- CA_SEEDLING_IDs %>%
+  filter(plot_id %in% CA_forest_type_plot_id)
+
+CA_SEEDLING_forest_type_species <- CA_SEEDLING_forest_type %>%
+  left_join(
+    REF_SPECIES %>%
+      mutate(species = paste(GENUS, SPECIES, sep = "_")) %>%
+      select(SPCD, species),
+    by = "SPCD"
+  )
+
+# species list from seedling data (forest-type-only workflow)
+CA_forest_type_all_seedling_species <- CA_SEEDLING_forest_type_species %>%
+  distinct(species) %>%
+  pull(species)
+
+length(CA_forest_type_all_species)
+length(CA_forest_type_all_seedling_species)
+
+# species found in both tree and seedling data
+intersect(CA_forest_type_all_species, CA_forest_type_all_seedling_species)
+
+# species found only in tree data (mature trees, no seedlings recorded)
+setdiff(CA_forest_type_all_species, CA_forest_type_all_seedling_species)
+
+# species found only in seedling data (recruiting, but no mature trees recorded)
+setdiff(CA_forest_type_all_seedling_species, CA_forest_type_all_species)
+
+# create a shared species list
+CA_forest_type_all_species
+CA_forest_type_all_seedling_species
+
+CA_species <- data.frame(
+  species = unique(c(
+    CA_forest_type_all_species,
+    CA_forest_type_all_seedling_species
+  ))
+)
+
+```
+
 
 # expand states
 # OR
@@ -2330,8 +2603,8 @@ OR_TREE_IDs_filtered <- OR_TREE_IDs %>%
 OR_TREE_species <- OR_TREE_IDs_filtered %>%
   left_join(
     REF_SPECIES %>%
-      mutate(species_name = paste(GENUS, SPECIES, sep = "_")) %>%
-      select(SPCD, species_name),
+      mutate(species = paste(GENUS, SPECIES, sep = "_")) %>%
+      select(SPCD, species),
     by = "SPCD"
   ) %>%
   left_join(
@@ -2353,7 +2626,7 @@ OR_TREE_species_filtered <- OR_TREE_species %>%
 
 # for all plots
 OR_species_summary_combined <- OR_TREE_species_filtered %>%
-  group_by(species_name) %>%
+  group_by(species) %>%
   summarise(
     total_abundance = n(),
     n_plots = n_distinct(plot_id),
@@ -2366,7 +2639,7 @@ OR_species_summary_combined <- OR_TREE_species_filtered %>%
 
 # by condition
 OR_species_summary_by_condition <- OR_TREE_species_filtered %>%
-  group_by(condition, species_name) %>%
+  group_by(condition, species) %>%
   summarise(
     total_abundance = n(),
     n_plots = n_distinct(plot_id),
@@ -2392,19 +2665,191 @@ OR_top_75_species <- OR_species_summary_combined %>%
   ) %>%
   arrange(combined_rank) %>%
   slice_head(n = 75)
-# 53 species total
+# 54 species total
 
 #total number of species across both control and burned plots
 OR_TREE_species_filtered %>%
   group_by(condition) %>%
-  summarise(n_species = n_distinct(species_name), .groups = "drop")
+  summarise(n_species = n_distinct(species), .groups = "drop")
 
 OR_all_species <- OR_TREE_species_filtered %>%
-  distinct(species_name) %>%
-  pull(species_name)
+  distinct(species) %>%
+  pull(species)
 
 length(OR_all_species)
-# 53 total species
+# 54 total species
+
+# to calculate dominance (the number of indiviudals of that species in that plot) and frequency (commonness)  (the number of plots the species occurs in / total number of plots)
+
+OR_tree_count <- OR_TREE_species_filtered %>%
+  group_by(plot_id) %>%
+  summarise(total_trees_in_plot = n(), .groups = "drop")
+
+OR_species_dominance <- OR_TREE_species_filtered %>%
+  group_by(plot_id, species) %>%
+  summarise(species_count = n(), .groups = "drop") %>%
+  left_join(OR_tree_count, by = "plot_id") %>%
+  mutate(relative_abundance = species_count / total_trees_in_plot)
+
+OR_species_summary <- OR_species_dominance %>%
+  group_by(species) %>%
+  summarise(
+    n_plots_present  = n_distinct(plot_id),
+    avg_dominance    = mean(relative_abundance),
+    median_dominance = median(relative_abundance),
+    min_dominance    = min(relative_abundance),
+    max_dominance    = max(relative_abundance),
+    .groups = "drop"
+  ) %>%
+  mutate(frequency = n_plots_present / n_distinct(OR_TREE_species_filtered$plot_id)) %>%
+  arrange(desc(frequency))
+
+# lets check whether dominant and common species differ by condition (burned vs control)
+
+OR_species_dominance_condition <- OR_species_dominance %>%
+  left_join(
+    OR_TREE_species_filtered %>% distinct(plot_id, condition),
+    by = "plot_id"
+  )
+
+# now summarize by condition + species instead of species alone
+OR_species_summary_by_condition <- OR_species_dominance_condition %>%
+  group_by(condition, species) %>%
+  summarise(
+    n_plots_present  = n_distinct(plot_id),
+    avg_dominance    = mean(relative_abundance),
+    median_dominance = median(relative_abundance),
+    min_dominance    = min(relative_abundance),
+    max_dominance    = max(relative_abundance),
+    .groups = "drop"
+  ) %>%
+  group_by(condition) %>%
+  mutate(
+    frequency = n_plots_present / n_distinct(OR_TREE_species_filtered$plot_id[OR_TREE_species_filtered$condition == condition])
+  ) %>%
+  ungroup() %>%
+  arrange(condition, desc(frequency))
+
+OR_species_condition_comparison <- OR_species_summary_by_condition %>%
+  select(condition, species, frequency, median_dominance) %>%
+  pivot_wider(
+    names_from = condition,
+    values_from = c(frequency, median_dominance)
+  ) %>%
+  mutate(
+    frequency_diff = frequency_burned - frequency_control,
+    dominance_diff = median_dominance_burned - median_dominance_control
+  ) %>%
+  arrange(desc(abs(dominance_diff)))
+
+library(ggrepel)
+
+OR_species_condition_comparison %>%
+  filter(!is.na(dominance_diff), !is.na(frequency_diff)) %>%
+  ggplot(aes(x = frequency_diff, y = dominance_diff, label = species)) +
+  geom_hline(yintercept = 0, linetype = "dashed", color = "gray70") +
+  geom_vline(xintercept = 0, linetype = "dashed", color = "gray70") +
+  geom_point(alpha = 0.6, size = 2) +
+  geom_text_repel(size = 3, max.overlaps = 15) +
+  labs(
+    x = "Frequency difference (burned − control)",
+    y = "Dominance difference (burned − control)",
+    title = "Burned - control species dominance (median)"
+  ) +
+  theme_minimal()
+
+# is the number of species recruiting in control plots greater than burned (OR)
+
+OR_SEEDLING_condition_filtered <- OR_SEEDLING_IDs %>%
+  filter(plot_id %in% OR_burned_and_control_plot_id) %>%
+  left_join(
+    OR_COND_treatment %>% distinct(plot_id, condition),
+    by = "plot_id"
+  )
+
+OR_SEEDLING_species_summary_condition <- OR_SEEDLING_condition_filtered %>%
+  group_by(plot_id, condition, SPCD) %>%
+  summarise(n_seedlings = sum(TREECOUNT, na.rm = TRUE), .groups = "drop") %>%
+  left_join(REF_SPECIES %>% dplyr::select(SPCD, GENUS, SPECIES), by = "SPCD") %>%
+  mutate(species = paste(GENUS, SPECIES, sep = "_"))
+
+OR_SEEDLING_plot_summary_condition <- OR_SEEDLING_species_summary_condition %>%
+  group_by(plot_id, condition) %>%
+  summarise(
+    n_seedling_species = n_distinct(SPCD),
+    n_seedlings = sum(n_seedlings, na.rm = TRUE),
+    .groups = "drop"
+  )
+
+OR_SEEDLING_plot_summary_condition %>%
+  ggplot(aes(x = n_seedling_species, fill = condition)) +
+  geom_histogram(binwidth = 1, color = "white", position = "identity", alpha = 0.6) +
+  facet_wrap(~condition, ncol = 1) +
+  theme_bw() +
+  labs(
+    x = "Number of seedling species per plot",
+    y = "Number of plots",
+    title = "Seedling species richness: burned vs. control (OR)"
+  )
+
+OR_SEEDLING_plot_summary_condition %>%
+  ggplot(aes(x = condition, y = n_seedling_species, fill = condition)) +
+  geom_boxplot(alpha = 0.6) +
+  theme_bw() +
+  labs(
+    x = NULL,
+    y = "Number of seedling species per plot",
+    title = "Seedling species richness: burned vs. control (OR)"
+  )
+
+OR_seedling_richness_summary_by_condition <- OR_SEEDLING_plot_summary_condition %>%
+  group_by(condition) %>%
+  summarise(
+    mean_richness   = mean(n_seedling_species),
+    median_richness = median(n_seedling_species),
+    n_plots         = n(),
+    .groups = "drop"
+  )
+
+OR_seedling_richness_summary_by_condition
+
+OR_SEEDLING_species_summary_condition %>%
+  group_by(species, condition, plot_id) %>%
+  summarise(n_seedlings = sum(n_seedlings), .groups = "drop") %>%
+  group_by(species, condition) %>%
+  summarise(mean_per_plot = mean(n_seedlings), .groups = "drop") %>%
+  group_by(condition) %>%
+  slice_max(mean_per_plot, n = 20) %>%
+  ungroup() %>%
+  ggplot(aes(x = reorder_within(species, mean_per_plot, condition), y = mean_per_plot, fill = condition)) +
+  geom_col() +
+  coord_flip() +
+  scale_x_reordered() +
+  facet_wrap(~condition, scales = "free_y") +
+  labs(
+    x = "species",
+    y = "average # seedlings per plot",
+    title = "Average seedling abundance per species per plot: burned vs. control (OR)"
+  ) +
+  theme_bw()
+
+OR_SEEDLING_species_summary_condition %>%
+  group_by(plot_id, condition, species) %>%
+  summarise(n_seedlings = sum(n_seedlings), .groups = "drop") %>%
+  mutate(n_seedlings_capped = pmin(n_seedlings, 50)) %>%
+  ggplot(aes(x = species, y = n_seedlings_capped, fill = condition)) +
+  geom_boxplot(alpha = 0.6) +
+  coord_flip() +
+  facet_wrap(~condition, scales = "free_y") +
+  labs(
+    x = "species",
+    y = "seedlings per plot (capped at 50)",
+    title = "Seedling abundance per species per plot: burned vs. control (OR)"
+  ) +
+  theme_bw()
+
+summary(OR_SEEDLING_plot_summary_condition$n_seedling_species[OR_SEEDLING_plot_summary_condition$condition == "burned"])
+summary(OR_SEEDLING_plot_summary_condition$n_seedling_species[OR_SEEDLING_plot_summary_condition$condition == "control"])
 
 ```
 
@@ -2425,6 +2870,129 @@ length(species_only_OR)
 # sanity check: total unique species across both states combined
 length(union(CA_all_species, OR_all_species))
 ```
+
+## whole plot network
+```{r}
+
+# filter CA_COND_IDs for forest types only, no disturbance filtering
+OR_COND_forest_type <- OR_COND_IDs %>%
+  filter(FORTYPCD %in% c(201, 202, 221, 222, 224, 225, 226, 241, 261, 262, 263, 264, 265, 267, 268, 270, 271, 281, 301, 304, 305, 321, 341, 342, 361, 365, 371, 722, 911, 912, 922, 923, 933, 941, 961))
+         
+(371, 201, 221, 222, 224, 225, 261, 922))
+
+# get the unique plot_ids that qualify
+OR_forest_type_plot_id <- OR_COND_forest_type %>%
+  distinct(plot_id) %>%
+  pull(plot_id)
+
+length(OR_forest_type_plot_id)
+
+# filter CA_PLOT_IDs for those plot_ids
+OR_PLOT_forest_type <- OR_PLOT_IDs %>%
+  filter(plot_id %in% OR_forest_type_plot_id)
+
+# filter CA_TREE_IDs for those plot_ids
+OR_TREE_forest_type <- OR_TREE_IDs %>%
+  filter(plot_id %in% OR_forest_type_plot_id)
+
+nrow(OR_PLOT_forest_type)
+n_distinct(OR_TREE_forest_type$plot_id)
+
+OR_TREE_forest_type_species <- OR_TREE_forest_type %>%
+  left_join(
+    REF_SPECIES %>%
+      mutate(species = paste(GENUS, SPECIES, sep = "_")) %>%
+      select(SPCD, species),
+    by = "SPCD"
+  )
+sum(is.na(OR_TREE_forest_type_species$species))
+n_distinct(OR_TREE_forest_type_species$species)
+
+# how different are the species from this workflow and the previous control plot filtering by climate?
+
+# species from your burned/control workflow (already built)
+OR_all_species   # from earlier: distinct species across CA_TREE_species_filtered
+
+# species from your new forest-type-only workflow
+OR_forest_type_all_species <- OR_TREE_forest_type_species %>%
+  distinct(species) %>%
+  pull(species)
+
+length(OR_forest_type_all_species)
+
+# species found in both workflows
+intersect(OR_all_species, OR_forest_type_all_species)
+
+# species found only in the burned/control workflow
+setdiff(OR_all_species, OR_forest_type_all_species)
+
+# species found only in the forest-type-only workflow
+setdiff(OR_forest_type_all_species, OR_all_species)
+
+
+# make sure the species coming out of SEEDLING match TREE
+# filter CA_SEEDLING_IDs for those plot_ids
+OR_SEEDLING_forest_type <- OR_SEEDLING_IDs %>%
+  filter(plot_id %in% OR_forest_type_plot_id)
+
+OR_SEEDLING_forest_type_species <- OR_SEEDLING_forest_type %>%
+  left_join(
+    REF_SPECIES %>%
+      mutate(species = paste(GENUS, SPECIES, sep = "_")) %>%
+      select(SPCD, species),
+    by = "SPCD"
+  )
+
+# species list from seedling data (forest-type-only workflow)
+OR_forest_type_all_seedling_species <- OR_SEEDLING_forest_type_species %>%
+  distinct(species) %>%
+  pull(species)
+
+length(OR_forest_type_all_species)
+length(OR_forest_type_all_seedling_species)
+
+# species found in both tree and seedling data
+intersect(OR_forest_type_all_species, OR_forest_type_all_seedling_species)
+
+# species found only in tree data (mature trees, no seedlings recorded)
+setdiff(OR_forest_type_all_species, OR_forest_type_all_seedling_species)
+
+# species found only in seedling data (recruiting, but no mature trees recorded)
+setdiff(OR_forest_type_all_seedling_species, OR_forest_type_all_species)
+
+# create a shared species list
+OR_forest_type_all_species
+OR_forest_type_all_seedling_species
+
+OR_species <- data.frame(
+  species = unique(c(
+    OR_forest_type_all_species,
+    OR_forest_type_all_seedling_species
+  ))
+)
+
+# how much overlap is there between CA and OR all species for our forest types
+setdiff(OR_species, CA_species) # 18 species in OR only 
+setdiff(CA_species, OR_species) # 22 species in CA only 
+
+# Number of shared species
+length(intersect(CA_species$species, OR_species$species))
+
+# Species only in Oregon
+length(setdiff(OR_species$species, CA_species$species))   # 18
+
+# Species only in California
+length(setdiff(CA_species$species, OR_species$species))   # 22
+
+# Total unique species across both states
+length(union(CA_species$species, OR_species$species)) 
+# 95 unique species across both states
+
+# Or equivalently
+length(unique(c(CA_species$species, OR_species$species)))
+
+```
+
 
 #WA
 ### fire only plots
@@ -3190,8 +3758,8 @@ WA_TREE_IDs_filtered <- WA_TREE_IDs %>%
 WA_TREE_species <- WA_TREE_IDs_filtered %>%
   left_join(
     REF_SPECIES %>%
-      mutate(species_name = paste(GENUS, SPECIES, sep = "_")) %>%
-      select(SPCD, species_name),
+      mutate(species = paste(GENUS, SPECIES, sep = "_")) %>%
+      select(SPCD, species),
     by = "SPCD"
   ) %>%
   left_join(
@@ -3209,7 +3777,7 @@ WA_TREE_species_filtered <- WA_TREE_species %>%
   )
 
 WA_species_summary_combined <- WA_TREE_species_filtered %>%
-  group_by(species_name) %>%
+  group_by(species) %>%
   summarise(
     total_abundance = n(),
     n_plots = n_distinct(plot_id),
@@ -3221,7 +3789,7 @@ WA_species_summary_combined <- WA_TREE_species_filtered %>%
   arrange(desc(total_abundance))
 
 WA_species_summary_by_condition <- WA_TREE_species_filtered %>%
-  group_by(condition, species_name) %>%
+  group_by(condition, species) %>%
   summarise(
     total_abundance = n(),
     n_plots = n_distinct(plot_id),
@@ -3245,15 +3813,287 @@ WA_top_75_species <- WA_species_summary_combined %>%
 
 WA_TREE_species_filtered %>%
   group_by(condition) %>%
-  summarise(n_species = n_distinct(species_name), .groups = "drop")
+  summarise(n_species = n_distinct(species), .groups = "drop")
 
 WA_all_species <- WA_TREE_species_filtered %>%
-  distinct(species_name) %>%
-  pull(species_name)
+  distinct(species) %>%
+  pull(species)
 
-length(WA_all_species)
+length(WA_all_species) # 34 species
+
+# to calculate dominance (the number of indiviudals of that species in that plot) and frequency (commonness)  (the number of plots the species occurs in / total number of plots)
+
+WA_tree_count <- WA_TREE_species_filtered %>%
+  group_by(plot_id) %>%
+  summarise(total_trees_in_plot = n(), .groups = "drop")
+
+WA_species_dominance <- WA_TREE_species_filtered %>%
+  group_by(plot_id, species) %>%
+  summarise(species_count = n(), .groups = "drop") %>%
+  left_join(WA_tree_count, by = "plot_id") %>%
+  mutate(relative_abundance = species_count / total_trees_in_plot)
+
+WA_species_summary <- WA_species_dominance %>%
+  group_by(species) %>%
+  summarise(
+    n_plots_present  = n_distinct(plot_id),
+    avg_dominance    = mean(relative_abundance),
+    median_dominance = median(relative_abundance),
+    min_dominance    = min(relative_abundance),
+    max_dominance    = max(relative_abundance),
+    .groups = "drop"
+  ) %>%
+  mutate(frequency = n_plots_present / n_distinct(WA_TREE_species_filtered$plot_id)) %>%
+  arrange(desc(frequency))
+
+# is the number of species recruiting in control plots greater than burned (WA)
+WA_SEEDLING_condition_filtered <- WA_SEEDLING_IDs %>%
+  filter(plot_id %in% WA_burned_and_control_plot_id) %>%
+  left_join(
+    WA_COND_treatment %>% distinct(plot_id, condition),
+    by = "plot_id"
+  )
+
+WA_SEEDLING_species_summary_condition <- WA_SEEDLING_condition_filtered %>%
+  group_by(plot_id, condition, SPCD) %>%
+  summarise(n_seedlings = sum(TREECOUNT, na.rm = TRUE), .groups = "drop") %>%
+  left_join(REF_SPECIES %>% dplyr::select(SPCD, GENUS, SPECIES), by = "SPCD") %>%
+  mutate(species = paste(GENUS, SPECIES, sep = "_"))
+
+WA_SEEDLING_plot_summary_condition <- WA_SEEDLING_species_summary_condition %>%
+  group_by(plot_id, condition) %>%
+  summarise(
+    n_seedling_species = n_distinct(SPCD),
+    n_seedlings = sum(n_seedlings, na.rm = TRUE),
+    .groups = "drop"
+  )
+
+WA_SEEDLING_plot_summary_condition %>%
+  ggplot(aes(x = n_seedling_species, fill = condition)) +
+  geom_histogram(binwidth = 1, color = "white", position = "identity", alpha = 0.6) +
+  facet_wrap(~condition, ncol = 1) +
+  theme_bw() +
+  labs(
+    x = "Number of seedling species per plot",
+    y = "Number of plots",
+    title = "Seedling species richness: burned vs. control (WA)"
+  )
+
+WA_SEEDLING_plot_summary_condition %>%
+  ggplot(aes(x = condition, y = n_seedling_species, fill = condition)) +
+  geom_boxplot(alpha = 0.6) +
+  theme_bw() +
+  labs(
+    x = NULL,
+    y = "Number of seedling species per plot",
+    title = "Seedling species richness: burned vs. control (WA)"
+  )
+
+WA_seedling_richness_summary_by_condition <- WA_SEEDLING_plot_summary_condition %>%
+  group_by(condition) %>%
+  summarise(
+    mean_richness   = mean(n_seedling_species),
+    median_richness = median(n_seedling_species),
+    n_plots         = n(),
+    .groups = "drop"
+  )
+
+WA_seedling_richness_summary_by_condition
+
+WA_SEEDLING_species_summary_condition %>%
+  group_by(species, condition, plot_id) %>%
+  summarise(n_seedlings = sum(n_seedlings), .groups = "drop") %>%
+  group_by(species, condition) %>%
+  summarise(mean_per_plot = mean(n_seedlings), .groups = "drop") %>%
+  group_by(condition) %>%
+  slice_max(mean_per_plot, n = 20) %>%
+  ungroup() %>%
+  ggplot(aes(x = reorder_within(species, mean_per_plot, condition), y = mean_per_plot, fill = condition)) +
+  geom_col() +
+  coord_flip() +
+  scale_x_reordered() +
+  facet_wrap(~condition, scales = "free_y") +
+  labs(
+    x = "species",
+    y = "average # seedlings per plot",
+    title = "Average seedling abundance per species per plot: burned vs. control (WA)"
+  ) +
+  theme_bw()
+
+WA_SEEDLING_species_summary_condition %>%
+  group_by(plot_id, condition, species) %>%
+  summarise(n_seedlings = sum(n_seedlings), .groups = "drop") %>%
+  mutate(n_seedlings_capped = pmin(n_seedlings, 50)) %>%
+  ggplot(aes(x = species, y = n_seedlings_capped, fill = condition)) +
+  geom_boxplot(alpha = 0.6) +
+  coord_flip() +
+  facet_wrap(~condition, scales = "free_y") +
+  labs(
+    x = "species",
+    y = "seedlings per plot (capped at 50)",
+    title = "Seedling abundance per species per plot: burned vs. control (WA)"
+  ) +
+  theme_bw()
+
+summary(WA_SEEDLING_plot_summary_condition$n_seedling_species[WA_SEEDLING_plot_summary_condition$condition == "burned"])
+summary(WA_SEEDLING_plot_summary_condition$n_seedling_species[WA_SEEDLING_plot_summary_condition$condition == "control"])
 
 ```
+
+## whole plot network
+```{r}
+
+# filter CA_COND_IDs for forest types only, no disturbance filtering
+WA_COND_forest_type <- WA_COND_IDs %>%
+  filter(FORTYPCD %in% c(201, 202, 221, 222, 224, 225, 226, 241, 261, 262, 263, 264, 265, 267, 268, 270, 271, 281, 301, 304, 305, 321, 341, 342, 361, 365, 371, 722, 911, 912, 922, 923, 933, 941, 961))
+         
+         
+(371, 201, 221, 222, 224, 225, 261, 922))
+
+# get the unique plot_ids that qualify
+WA_forest_type_plot_id <- WA_COND_forest_type %>%
+  distinct(plot_id) %>%
+  pull(plot_id)
+
+length(WA_forest_type_plot_id)
+
+# filter CA_PLOT_IDs for those plot_ids
+WA_PLOT_forest_type <- WA_PLOT_IDs %>%
+  filter(plot_id %in% WA_forest_type_plot_id)
+
+# filter CA_TREE_IDs for those plot_ids
+WA_TREE_forest_type <- WA_TREE_IDs %>%
+  filter(plot_id %in% WA_forest_type_plot_id)
+
+nrow(WA_PLOT_forest_type)
+n_distinct(WA_TREE_forest_type$plot_id)
+
+WA_TREE_forest_type_species <- WA_TREE_forest_type %>%
+  left_join(
+    REF_SPECIES %>%
+      mutate(species = paste(GENUS, SPECIES, sep = "_")) %>%
+      select(SPCD, species),
+    by = "SPCD"
+  )
+sum(is.na(WA_TREE_forest_type_species$species))
+n_distinct(WA_TREE_forest_type_species$species) # 49 species
+
+# how different are the species from this workflow and the previous control plot filtering by climate?
+
+# species from your burned/control workflow (already built)
+WA_all_species   # from earlier: distinct species across CA_TREE_species_filtered
+
+# species from your new forest-type-only workflow
+WA_forest_type_all_species <- WA_TREE_forest_type_species %>%
+  distinct(species) %>%
+  pull(species)
+
+length(WA_forest_type_all_species)
+
+# species found in both workflows
+intersect(WA_all_species, WA_forest_type_all_species)
+
+# species found only in the burned/control workflow
+setdiff(WA_all_species, WA_forest_type_all_species)
+
+# species found only in the forest-type-only workflow
+setdiff(WA_forest_type_all_species, WA_all_species) # 15 species more
+
+
+# make sure the species coming out of SEEDLING match TREE
+# filter CA_SEEDLING_IDs for those plot_ids
+WA_SEEDLING_forest_type <- WA_SEEDLING_IDs %>%
+  filter(plot_id %in% WA_forest_type_plot_id)
+
+WA_SEEDLING_forest_type_species <- WA_SEEDLING_forest_type %>%
+  left_join(
+    REF_SPECIES %>%
+      mutate(species = paste(GENUS, SPECIES, sep = "_")) %>%
+      select(SPCD, species),
+    by = "SPCD"
+  )
+
+# species list from seedling data (forest-type-only workflow)
+WA_forest_type_all_seedling_species <- WA_SEEDLING_forest_type_species %>%
+  distinct(species) %>%
+  pull(species)
+
+length(WA_forest_type_all_species)
+length(WA_forest_type_all_seedling_species)
+
+# species found in both tree and seedling data
+intersect(WA_forest_type_all_species, WA_forest_type_all_seedling_species)
+
+# species found only in tree data (mature trees, no seedlings recorded)
+setdiff(WA_forest_type_all_species, WA_forest_type_all_seedling_species)
+
+# species found only in seedling data (recruiting, but no mature trees recorded)
+setdiff(WA_forest_type_all_seedling_species, WA_forest_type_all_species)
+
+# create a shared species list
+WA_forest_type_all_species
+WA_forest_type_all_seedling_species
+
+WA_species <- data.frame(
+  species = unique(c(
+    WA_forest_type_all_species,
+    WA_forest_type_all_seedling_species
+  ))
+)
+
+CA_OR_WA_forest_type_species_lists <- list(
+  CA = CA_species,
+  OR = OR_species,
+  WA = WA_species
+)
+
+# species found in ALL THREE states
+CA_OR_WA_forest_type_species <- Reduce(intersect, CA_OR_WA_forest_type_species_lists)
+length(unique(CA_OR_WA_forest_type_species$species)) 
+# 40 species shared in all 3 states
+
+# total unique species across all three states combined
+CA_OR_WA_forest_type_species_overlap <- Reduce(union, CA_OR_WA_forest_type_species_lists)
+length(CA_OR_WA_forest_type_species_overlap$species) 
+# 100 total unique species across all three states
+
+write.csv(CA_OR_WA_forest_type_species_overlap, "updated_species_list_07182026.csv", row.names = FALSE)
+
+# species found in exactly one state only (not shared with either other state)
+length(setdiff(CA_species$species, union(OR_species$species, WA_species$species))) # 21 in CA only
+length(setdiff(OR_species$species, union(CA_species$species, WA_species$species))) # 11 in OR only
+length(setdiff(WA_species$species, union(CA_species$species, OR_species$species))) # 5 in WA only
+
+# Shared by CA and OR, but NOT WA
+setdiff(intersect(CA_species$species, OR_species$species), WA_species$species)
+# 15 species
+
+# Shared by CA and WA, but NOT OR
+setdiff(intersect(CA_species$species, WA_species$species), OR_species$species)
+# 1 species
+
+# Shared by OR and WA, but NOT CA
+setdiff(intersect(OR_species$species, WA_species$species), CA_species$species)
+# 7 species 
+
+# 100 unique species across all states, 40 shared and 37 unique
+
+# Install and load the package if you haven't already
+install.packages("ggvenn")
+library(ggvenn)
+
+# Combine your separate state lists into a single named list
+venn_data <- list(
+  California = CA_species$species,
+  Oregon     = OR_species$species,
+  Washington = WA_species$species
+)
+
+# Plot the diagram
+ggvenn(venn_data, fill_color = c("#3A86FF", "#FF006E", "#FFBE0B"))
+
+```
+
 
 # CA, WA, OR species list
 
@@ -3282,8 +4122,8 @@ length(setdiff(WA_all_species, union(CA_all_species, OR_all_species)))
 
 # are burned plot species much different than control plot species
 # CA
-CA_species_burned  <- CA_TREE_species_filtered %>% filter(condition == "burned")  %>% distinct(species_name) %>% pull(species_name)
-CA_species_control <- CA_TREE_species_filtered %>% filter(condition == "control") %>% distinct(species_name) %>% pull(species_name)
+CA_species_burned  <- CA_TREE_species_filtered %>% filter(condition == "burned")  %>% distinct(species) %>% pull(species)
+CA_species_control <- CA_TREE_species_filtered %>% filter(condition == "control") %>% distinct(species) %>% pull(species)
 
 length(CA_species_burned) # 49 species
 length(CA_species_control) # 60 species
@@ -3292,8 +4132,8 @@ length(setdiff(CA_species_burned, CA_species_control)) # 5 in burned only
 length(setdiff(CA_species_control, CA_species_burned)) # 16 in control-only
 
 # OR
-OR_species_burned  <- OR_TREE_species_filtered %>% filter(condition == "burned")  %>% distinct(species_name) %>% pull(species_name)
-OR_species_control <- OR_TREE_species_filtered %>% filter(condition == "control") %>% distinct(species_name) %>% pull(species_name)
+OR_species_burned  <- OR_TREE_species_filtered %>% filter(condition == "burned")  %>% distinct(species) %>% pull(species)
+OR_species_control <- OR_TREE_species_filtered %>% filter(condition == "control") %>% distinct(species) %>% pull(species)
 
 length(OR_species_burned) # 44 species
 length(OR_species_control) # 51 species
@@ -3302,8 +4142,8 @@ length(setdiff(OR_species_burned, OR_species_control)) # 2 in burned only
 length(setdiff(OR_species_control, OR_species_burned)) # 9 in control only
 
 # WA
-WA_species_burned  <- WA_TREE_species_filtered %>% filter(condition == "burned")  %>% distinct(species_name) %>% pull(species_name)
-WA_species_control <- WA_TREE_species_filtered %>% filter(condition == "control") %>% distinct(species_name) %>% pull(species_name)
+WA_species_burned  <- WA_TREE_species_filtered %>% filter(condition == "burned")  %>% distinct(species) %>% pull(species)
+WA_species_control <- WA_TREE_species_filtered %>% filter(condition == "control") %>% distinct(species) %>% pull(species)
 
 length(WA_species_burned) # 25 species
 length(WA_species_control) # 31 species
