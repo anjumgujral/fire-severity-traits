@@ -33,6 +33,8 @@ WA_PLOT <- read.csv("./data/FIA/WA_PLOT.csv")
 WY_PLOT <- read.csv("./data/FIA/WY_PLOT.csv")
 ID_PLOT <- read.csv("./data/FIA/ID_PLOT.csv")
 MT_PLOT <- read.csv("./data/FIA/MT_PLOT.csv")
+AZ_PLOT <- read.csv("./data/FIA/AZ_PLOT.csv")
+NM_PLOT <- read.csv("./data/FIA/NM_PLOT.csv")
 
 # then load in condition code files for each state
 CA_COND <- read.csv("./data/FIA/CA_COND.csv")
@@ -44,6 +46,8 @@ WA_COND <- read.csv("./data/FIA/WA_COND.csv")
 WY_COND <- read.csv("./data/FIA/WY_COND.csv")
 ID_COND <- read.csv("./data/FIA/ID_COND.csv")
 MT_COND <- read.csv("./data/FIA/MT_COND.csv")
+AZ_COND <- read.csv("./data/FIA/AZ_COND.csv")
+NM_COND <- read.csv("./data/FIA/NM_COND.csv")
 
 # then load in TREE level data for each state
 CA_TREE <- read.csv("./data/FIA/CA_TREE.csv")
@@ -55,6 +59,8 @@ WA_TREE <- read.csv("./data/FIA/WA_TREE.csv")
 WY_TREE <- read.csv("./data/FIA/WY_TREE.csv")
 ID_TREE <- read.csv("./data/FIA/ID_TREE.csv")
 MT_TREE <- read.csv("./data/FIA/MT_TREE.csv")
+AZ_TREE <- read.csv("./data/FIA/AZ_TREE.csv")
+NM_TREE <- read.csv("./data/FIA/NM_TREE.csv")
 
 CA_SEEDLING <- read.csv("./data/FIA/CA_SEEDLING.csv")
 CO_SEEDLING <- read.csv("./data/FIA/CO_SEEDLING.csv")
@@ -65,7 +71,8 @@ WA_SEEDLING <- read.csv("./data/FIA/WA_SEEDLING.csv")
 WY_SEEDLING <- read.csv("./data/FIA/WY_SEEDLING.csv")
 ID_SEEDLING <- read.csv("./data/FIA/ID_SEEDLING.csv")
 MT_SEEDLING <- read.csv("./data/FIA/MT_SEEDLING.csv")
-
+AZ_SEEDLING <- read.csv("./data/FIA/AZ_SEEDLING.csv")
+NM_SEEDLING <- read.csv("./data/FIA/NM_SEEDLING.csv")
 
 # Load in reference species names
 REF_SPECIES <- read.csv("./data/FIA/REF_SPECIES.csv")
@@ -1622,112 +1629,6 @@ CA_SEEDLING_plot_summary_condition %>%
 
 ```
 
-## whole plot network
-```{r}
-
-# filter CA_COND_IDs for forest types only, no disturbance filtering
-CA_COND_forest_type <- CA_COND_IDs %>%
-  filter(FORTYPCD %in% c(201, 202, 221, 222, 224, 225, 226, 241, 261, 262, 263, 264, 265, 267, 268, 270, 271, 281, 301, 304, 305, 321, 341, 342, 361, 365, 371, 722, 911, 912, 922, 923, 933, 941, 961))
-           
-(371, 201, 221, 222, 224, 225, 261, 922))
-
-
-
-# get the unique plot_ids that qualify
-CA_forest_type_plot_id <- CA_COND_forest_type %>%
-  distinct(plot_id) %>%
-  pull(plot_id)
-
-length(CA_forest_type_plot_id)
-
-# filter CA_PLOT_IDs for those plot_ids
-CA_PLOT_forest_type <- CA_PLOT_IDs %>%
-  filter(plot_id %in% CA_forest_type_plot_id)
-
-# filter CA_TREE_IDs for those plot_ids
-CA_TREE_forest_type <- CA_TREE_IDs %>%
-  filter(plot_id %in% CA_forest_type_plot_id)
-
-nrow(CA_PLOT_forest_type)
-n_distinct(CA_TREE_forest_type$plot_id)
-
-CA_TREE_forest_type_species <- CA_TREE_forest_type %>%
-  left_join(
-    REF_SPECIES %>%
-      mutate(species = paste(GENUS, SPECIES, sep = "_")) %>%
-      select(SPCD, species),
-    by = "SPCD"
-  )
-sum(is.na(CA_TREE_forest_type_species$species))
-n_distinct(CA_TREE_forest_type_species$species)
-
-# how different are the species from this workflow and the previous control plot filtering by climate?
-
-# species from your burned/control workflow (already built)
-CA_all_species   # from earlier: distinct species across CA_TREE_species_filtered
-
-# species from your new forest-type-only workflow
-CA_forest_type_all_species <- CA_TREE_forest_type_species %>%
-  distinct(species) %>%
-  pull(species)
-
-length(CA_forest_type_all_species)
-
-# species found in both workflows
-intersect(CA_all_species, CA_forest_type_all_species)
-
-# species found only in the burned/control workflow
-setdiff(CA_all_species, CA_forest_type_all_species)
-
-# species found only in the forest-type-only workflow
-setdiff(CA_forest_type_all_species, CA_all_species)
-
-
-# make sure the species coming out of SEEDLING match TREE
-# filter CA_SEEDLING_IDs for those plot_ids
-CA_SEEDLING_forest_type <- CA_SEEDLING_IDs %>%
-  filter(plot_id %in% CA_forest_type_plot_id)
-
-CA_SEEDLING_forest_type_species <- CA_SEEDLING_forest_type %>%
-  left_join(
-    REF_SPECIES %>%
-      mutate(species = paste(GENUS, SPECIES, sep = "_")) %>%
-      select(SPCD, species),
-    by = "SPCD"
-  )
-
-# species list from seedling data (forest-type-only workflow)
-CA_forest_type_all_seedling_species <- CA_SEEDLING_forest_type_species %>%
-  distinct(species) %>%
-  pull(species)
-
-length(CA_forest_type_all_species)
-length(CA_forest_type_all_seedling_species)
-
-# species found in both tree and seedling data
-intersect(CA_forest_type_all_species, CA_forest_type_all_seedling_species)
-
-# species found only in tree data (mature trees, no seedlings recorded)
-setdiff(CA_forest_type_all_species, CA_forest_type_all_seedling_species)
-
-# species found only in seedling data (recruiting, but no mature trees recorded)
-setdiff(CA_forest_type_all_seedling_species, CA_forest_type_all_species)
-
-# create a shared species list
-CA_forest_type_all_species
-CA_forest_type_all_seedling_species
-
-CA_species <- data.frame(
-  species = unique(c(
-    CA_forest_type_all_species,
-    CA_forest_type_all_seedling_species
-  ))
-)
-
-```
-
-
-# expand states
 # OR
 ### fire only plots
 ```{r}
@@ -2871,128 +2772,6 @@ length(species_only_OR)
 length(union(CA_all_species, OR_all_species))
 ```
 
-## whole plot network
-```{r}
-
-# filter CA_COND_IDs for forest types only, no disturbance filtering
-OR_COND_forest_type <- OR_COND_IDs %>%
-  filter(FORTYPCD %in% c(201, 202, 221, 222, 224, 225, 226, 241, 261, 262, 263, 264, 265, 267, 268, 270, 271, 281, 301, 304, 305, 321, 341, 342, 361, 365, 371, 722, 911, 912, 922, 923, 933, 941, 961))
-         
-(371, 201, 221, 222, 224, 225, 261, 922))
-
-# get the unique plot_ids that qualify
-OR_forest_type_plot_id <- OR_COND_forest_type %>%
-  distinct(plot_id) %>%
-  pull(plot_id)
-
-length(OR_forest_type_plot_id)
-
-# filter CA_PLOT_IDs for those plot_ids
-OR_PLOT_forest_type <- OR_PLOT_IDs %>%
-  filter(plot_id %in% OR_forest_type_plot_id)
-
-# filter CA_TREE_IDs for those plot_ids
-OR_TREE_forest_type <- OR_TREE_IDs %>%
-  filter(plot_id %in% OR_forest_type_plot_id)
-
-nrow(OR_PLOT_forest_type)
-n_distinct(OR_TREE_forest_type$plot_id)
-
-OR_TREE_forest_type_species <- OR_TREE_forest_type %>%
-  left_join(
-    REF_SPECIES %>%
-      mutate(species = paste(GENUS, SPECIES, sep = "_")) %>%
-      select(SPCD, species),
-    by = "SPCD"
-  )
-sum(is.na(OR_TREE_forest_type_species$species))
-n_distinct(OR_TREE_forest_type_species$species)
-
-# how different are the species from this workflow and the previous control plot filtering by climate?
-
-# species from your burned/control workflow (already built)
-OR_all_species   # from earlier: distinct species across CA_TREE_species_filtered
-
-# species from your new forest-type-only workflow
-OR_forest_type_all_species <- OR_TREE_forest_type_species %>%
-  distinct(species) %>%
-  pull(species)
-
-length(OR_forest_type_all_species)
-
-# species found in both workflows
-intersect(OR_all_species, OR_forest_type_all_species)
-
-# species found only in the burned/control workflow
-setdiff(OR_all_species, OR_forest_type_all_species)
-
-# species found only in the forest-type-only workflow
-setdiff(OR_forest_type_all_species, OR_all_species)
-
-
-# make sure the species coming out of SEEDLING match TREE
-# filter CA_SEEDLING_IDs for those plot_ids
-OR_SEEDLING_forest_type <- OR_SEEDLING_IDs %>%
-  filter(plot_id %in% OR_forest_type_plot_id)
-
-OR_SEEDLING_forest_type_species <- OR_SEEDLING_forest_type %>%
-  left_join(
-    REF_SPECIES %>%
-      mutate(species = paste(GENUS, SPECIES, sep = "_")) %>%
-      select(SPCD, species),
-    by = "SPCD"
-  )
-
-# species list from seedling data (forest-type-only workflow)
-OR_forest_type_all_seedling_species <- OR_SEEDLING_forest_type_species %>%
-  distinct(species) %>%
-  pull(species)
-
-length(OR_forest_type_all_species)
-length(OR_forest_type_all_seedling_species)
-
-# species found in both tree and seedling data
-intersect(OR_forest_type_all_species, OR_forest_type_all_seedling_species)
-
-# species found only in tree data (mature trees, no seedlings recorded)
-setdiff(OR_forest_type_all_species, OR_forest_type_all_seedling_species)
-
-# species found only in seedling data (recruiting, but no mature trees recorded)
-setdiff(OR_forest_type_all_seedling_species, OR_forest_type_all_species)
-
-# create a shared species list
-OR_forest_type_all_species
-OR_forest_type_all_seedling_species
-
-OR_species <- data.frame(
-  species = unique(c(
-    OR_forest_type_all_species,
-    OR_forest_type_all_seedling_species
-  ))
-)
-
-# how much overlap is there between CA and OR all species for our forest types
-setdiff(OR_species, CA_species) # 18 species in OR only 
-setdiff(CA_species, OR_species) # 22 species in CA only 
-
-# Number of shared species
-length(intersect(CA_species$species, OR_species$species))
-
-# Species only in Oregon
-length(setdiff(OR_species$species, CA_species$species))   # 18
-
-# Species only in California
-length(setdiff(CA_species$species, OR_species$species))   # 22
-
-# Total unique species across both states
-length(union(CA_species$species, OR_species$species)) 
-# 95 unique species across both states
-
-# Or equivalently
-length(unique(c(CA_species$species, OR_species$species)))
-
-```
-
 
 #WA
 ### fire only plots
@@ -3940,316 +3719,7 @@ summary(WA_SEEDLING_plot_summary_condition$n_seedling_species[WA_SEEDLING_plot_s
 
 ```
 
-## whole plot network
-```{r}
 
-# filter CA_COND_IDs for forest types only, no disturbance filtering
-WA_COND_forest_type <- WA_COND_IDs %>%
-  filter(FORTYPCD %in% c(201, 202, 221, 222, 224, 225, 226, 241, 261, 262, 263, 264, 265, 267, 268, 270, 271, 281, 301, 304, 305, 321, 341, 342, 361, 365, 371, 722, 911, 912, 922, 923, 933, 941, 961))
-         
-         
-(371, 201, 221, 222, 224, 225, 261, 922))
-
-# get the unique plot_ids that qualify
-WA_forest_type_plot_id <- WA_COND_forest_type %>%
-  distinct(plot_id) %>%
-  pull(plot_id)
-
-length(WA_forest_type_plot_id)
-
-# filter CA_PLOT_IDs for those plot_ids
-WA_PLOT_forest_type <- WA_PLOT_IDs %>%
-  filter(plot_id %in% WA_forest_type_plot_id)
-
-# filter CA_TREE_IDs for those plot_ids
-WA_TREE_forest_type <- WA_TREE_IDs %>%
-  filter(plot_id %in% WA_forest_type_plot_id)
-
-nrow(WA_PLOT_forest_type)
-n_distinct(WA_TREE_forest_type$plot_id)
-
-WA_TREE_forest_type_species <- WA_TREE_forest_type %>%
-  left_join(
-    REF_SPECIES %>%
-      mutate(species = paste(GENUS, SPECIES, sep = "_")) %>%
-      select(SPCD, species),
-    by = "SPCD"
-  )
-sum(is.na(WA_TREE_forest_type_species$species))
-n_distinct(WA_TREE_forest_type_species$species) # 49 species
-
-# how different are the species from this workflow and the previous control plot filtering by climate?
-
-# species from your burned/control workflow (already built)
-WA_all_species   # from earlier: distinct species across CA_TREE_species_filtered
-
-# species from your new forest-type-only workflow
-WA_forest_type_all_species <- WA_TREE_forest_type_species %>%
-  distinct(species) %>%
-  pull(species)
-
-length(WA_forest_type_all_species)
-
-# species found in both workflows
-intersect(WA_all_species, WA_forest_type_all_species)
-
-# species found only in the burned/control workflow
-setdiff(WA_all_species, WA_forest_type_all_species)
-
-# species found only in the forest-type-only workflow
-setdiff(WA_forest_type_all_species, WA_all_species) # 15 species more
-
-
-# make sure the species coming out of SEEDLING match TREE
-# filter CA_SEEDLING_IDs for those plot_ids
-WA_SEEDLING_forest_type <- WA_SEEDLING_IDs %>%
-  filter(plot_id %in% WA_forest_type_plot_id)
-
-WA_SEEDLING_forest_type_species <- WA_SEEDLING_forest_type %>%
-  left_join(
-    REF_SPECIES %>%
-      mutate(species = paste(GENUS, SPECIES, sep = "_")) %>%
-      select(SPCD, species),
-    by = "SPCD"
-  )
-
-# species list from seedling data (forest-type-only workflow)
-WA_forest_type_all_seedling_species <- WA_SEEDLING_forest_type_species %>%
-  distinct(species) %>%
-  pull(species)
-
-length(WA_forest_type_all_species)
-length(WA_forest_type_all_seedling_species)
-
-# species found in both tree and seedling data
-intersect(WA_forest_type_all_species, WA_forest_type_all_seedling_species)
-
-# species found only in tree data (mature trees, no seedlings recorded)
-setdiff(WA_forest_type_all_species, WA_forest_type_all_seedling_species)
-
-# species found only in seedling data (recruiting, but no mature trees recorded)
-setdiff(WA_forest_type_all_seedling_species, WA_forest_type_all_species)
-
-# create a shared species list
-WA_forest_type_all_species
-WA_forest_type_all_seedling_species
-
-WA_species <- data.frame(
-  species = unique(c(
-    WA_forest_type_all_species,
-    WA_forest_type_all_seedling_species
-  ))
-)
-
-CA_OR_WA_forest_type_species_lists <- list(
-  CA = CA_species,
-  OR = OR_species,
-  WA = WA_species
-)
-
-# species found in ALL THREE states
-CA_OR_WA_forest_type_species <- Reduce(intersect, CA_OR_WA_forest_type_species_lists)
-length(unique(CA_OR_WA_forest_type_species$species)) 
-# 40 species shared in all 3 states
-
-# total unique species across all three states combined
-CA_OR_WA_forest_type_species_overlap <- Reduce(union, CA_OR_WA_forest_type_species_lists)
-length(CA_OR_WA_forest_type_species_overlap$species) 
-# 100 total unique species across all three states
-
-write.csv(CA_OR_WA_forest_type_species_overlap, "updated_species_list_07182026.csv", row.names = FALSE)
-
-# species found in exactly one state only (not shared with either other state)
-length(setdiff(CA_species$species, union(OR_species$species, WA_species$species))) # 21 in CA only
-length(setdiff(OR_species$species, union(CA_species$species, WA_species$species))) # 11 in OR only
-length(setdiff(WA_species$species, union(CA_species$species, OR_species$species))) # 5 in WA only
-
-# Shared by CA and OR, but NOT WA
-setdiff(intersect(CA_species$species, OR_species$species), WA_species$species)
-# 15 species
-
-# Shared by CA and WA, but NOT OR
-setdiff(intersect(CA_species$species, WA_species$species), OR_species$species)
-# 1 species
-
-# Shared by OR and WA, but NOT CA
-setdiff(intersect(OR_species$species, WA_species$species), CA_species$species)
-# 7 species 
-
-# 100 unique species across all states, 40 shared and 37 unique
-
-# Install and load the package if you haven't already
-install.packages("ggvenn")
-library(ggvenn)
-
-# Combine your separate state lists into a single named list
-venn_data <- list(
-  California = CA_species$species,
-  Oregon     = OR_species$species,
-  Washington = WA_species$species
-)
-
-# Plot the diagram
-ggvenn(venn_data, fill_color = c("#3A86FF", "#FF006E", "#FFBE0B"))
-
-```
-
-
-# CA, WA, OR species list
-
-```{r}
-CA_OR_WA_species_lists <- list(
-  CA = CA_all_species,
-  OR = OR_all_species,
-  WA = WA_all_species
-)
-
-# species found in ALL THREE states
-CA_OR_WA_species <- Reduce(intersect, CA_OR_WA_species_lists)
-length(CA_OR_WA_species)
-
-# total unique species across all three states combined
-CA_OR_WA_species_overlap <- Reduce(union, CA_OR_WA_species_lists)
-length(CA_OR_WA_species_overlap)
-
-# species found in exactly one state only (not shared with either other state)
-length(setdiff(CA_all_species, union(OR_all_species, WA_all_species)))
-length(setdiff(OR_all_species, union(CA_all_species, WA_all_species)))
-length(setdiff(WA_all_species, union(CA_all_species, OR_all_species)))
-
-# 78 unique species across all states, 48 shared and 30 unique
-
-
-# are burned plot species much different than control plot species
-# CA
-CA_species_burned  <- CA_TREE_species_filtered %>% filter(condition == "burned")  %>% distinct(species) %>% pull(species)
-CA_species_control <- CA_TREE_species_filtered %>% filter(condition == "control") %>% distinct(species) %>% pull(species)
-
-length(CA_species_burned) # 49 species
-length(CA_species_control) # 60 species
-length(intersect(CA_species_burned, CA_species_control)) # 44 species shared
-length(setdiff(CA_species_burned, CA_species_control)) # 5 in burned only
-length(setdiff(CA_species_control, CA_species_burned)) # 16 in control-only
-
-# OR
-OR_species_burned  <- OR_TREE_species_filtered %>% filter(condition == "burned")  %>% distinct(species) %>% pull(species)
-OR_species_control <- OR_TREE_species_filtered %>% filter(condition == "control") %>% distinct(species) %>% pull(species)
-
-length(OR_species_burned) # 44 species
-length(OR_species_control) # 51 species
-length(intersect(OR_species_burned, OR_species_control)) # 42 species shared
-length(setdiff(OR_species_burned, OR_species_control)) # 2 in burned only
-length(setdiff(OR_species_control, OR_species_burned)) # 9 in control only
-
-# WA
-WA_species_burned  <- WA_TREE_species_filtered %>% filter(condition == "burned")  %>% distinct(species) %>% pull(species)
-WA_species_control <- WA_TREE_species_filtered %>% filter(condition == "control") %>% distinct(species) %>% pull(species)
-
-length(WA_species_burned) # 25 species
-length(WA_species_control) # 31 species
-length(intersect(WA_species_burned, WA_species_control)) # 23 species shared
-length(setdiff(WA_species_burned, WA_species_control)) # 2 in burned only
-length(setdiff(WA_species_control, WA_species_burned)) # 8 in control only 
-```
-
-
-# species list
-```{r}
-# now lets aggregate a species list for each state
-# STATE_TREE links to STAT_COND via the common identifier PLT_CN
-# take the PLT_CN codes from forest_type_combined and filter STATE_TREE
-CA_TREE_fire_only <- CA_TREE %>%
-  filter(PLT_CN %in% CA_forest_type_combined$PLT_CN)
-
-WA_TREE_fire_only <- WA_TREE %>%
-  filter(PLT_CN %in% WA_forest_type_combined$PLT_CN)
-
-OR_TREE_fire_only <- OR_TREE %>%
-  filter(PLT_CN %in% OR_forest_type_combined$PLT_CN)
-
-ID_TREE_fire_only <- ID_TREE %>%
-  filter(PLT_CN %in% ID_forest_type_combined$PLT_CN)
-
-MT_TREE_fire_only <- MT_TREE %>%
-  filter(PLT_CN %in% MT_forest_type_combined$PLT_CN)
-
-CO_TREE_fire_only <- CO_TREE %>%
-  filter(PLT_CN %in% CO_forest_type_combined$PLT_CN)
-
-NV_TREE_fire_only <- NV_TREE %>%
-  filter(PLT_CN %in% NV_forest_type_combined$PLT_CN)
-
-UT_TREE_fire_only <- UT_TREE %>%
-  filter(PLT_CN %in% UT_forest_type_combined$PLT_CN)
-
-WY_TREE_fire_only <- WY_TREE %>%
-  filter(PLT_CN %in% WY_forest_type_combined$PLT_CN)
-
-# attach SCIENTIFIC_NAME from REF_SPECIES to SPCD in CA_TREE_fire_only_spp_ID
-CA_TREE_fire_only_spp_ID <- CA_TREE_fire_only %>%
-  left_join(REF_SPECIES %>% dplyr::select(SPCD, SCIENTIFIC_NAME), by = "SPCD")
-
-WA_TREE_fire_only_spp_ID <- WA_TREE_fire_only %>%
-  left_join(REF_SPECIES %>% dplyr::select(SPCD, SCIENTIFIC_NAME), by = "SPCD")
-
-OR_TREE_fire_only_spp_ID <- OR_TREE_fire_only %>%
-  left_join(REF_SPECIES %>% dplyr::select(SPCD, SCIENTIFIC_NAME), by = "SPCD")
-
-ID_TREE_fire_only_spp_ID <- ID_TREE_fire_only %>%
-  left_join(REF_SPECIES %>% dplyr::select(SPCD, SCIENTIFIC_NAME), by = "SPCD")
-
-MT_TREE_fire_only_spp_ID <- MT_TREE_fire_only %>%
-  left_join(REF_SPECIES %>% dplyr::select(SPCD, SCIENTIFIC_NAME), by = "SPCD")
-
-CO_TREE_fire_only_spp_ID <- CO_TREE_fire_only %>%
-  left_join(REF_SPECIES %>% dplyr::select(SPCD, SCIENTIFIC_NAME), by = "SPCD")
-
-NV_TREE_fire_only_spp_ID <- NV_TREE_fire_only %>%
-  left_join(REF_SPECIES %>% dplyr::select(SPCD, SCIENTIFIC_NAME), by = "SPCD")
-
-UT_TREE_fire_only_spp_ID <- UT_TREE_fire_only %>%
-  left_join(REF_SPECIES %>% dplyr::select(SPCD, SCIENTIFIC_NAME), by = "SPCD")
-
-WY_TREE_fire_only_spp_ID <- WY_TREE_fire_only %>%
-  left_join(REF_SPECIES %>% dplyr::select(SPCD, SCIENTIFIC_NAME), by = "SPCD")
-
-# create a list of tree species in fire only plots
-CA_TREE_fire_only_spp_list <- unique(CA_TREE_fire_only_spp_ID$SCIENTIFIC_NAME)
-
-WA_TREE_fire_only_spp_list <- unique(WA_TREE_fire_only_spp_ID$SCIENTIFIC_NAME)
-
-OR_TREE_fire_only_spp_list <- unique(OR_TREE_fire_only_spp_ID$SCIENTIFIC_NAME)
-
-ID_TREE_fire_only_spp_list <- unique(ID_TREE_fire_only_spp_ID$SCIENTIFIC_NAME)
-
-MT_TREE_fire_only_spp_list <- unique(MT_TREE_fire_only_spp_ID$SCIENTIFIC_NAME)
-
-CO_TREE_fire_only_spp_list <- unique(CO_TREE_fire_only_spp_ID$SCIENTIFIC_NAME)
-
-NV_TREE_fire_only_spp_list <- unique(NV_TREE_fire_only_spp_ID$SCIENTIFIC_NAME)
-
-UT_TREE_fire_only_spp_list <- unique(UT_TREE_fire_only_spp_ID$SCIENTIFIC_NAME)
-
-WY_TREE_fire_only_spp_list <- unique(WY_TREE_fire_only_spp_ID$SCIENTIFIC_NAME)
-
-# can we now take the species lists for each state and find the intersection?
-#(i.e. we want a list of total unique species across states)
-
-# merge all states species lists and keep only unique species
-total_unique_species <- unique(c(
-  CA_TREE_fire_only_spp_list,
-  WA_TREE_fire_only_spp_list,
-  OR_TREE_fire_only_spp_list,
-  ID_TREE_fire_only_spp_list,
-  MT_TREE_fire_only_spp_list,
-  CO_TREE_fire_only_spp_list,
-  NV_TREE_fire_only_spp_list,
-  UT_TREE_fire_only_spp_list,
-  WY_TREE_fire_only_spp_list
-))
-
-write.csv(total_unique_species, file = "fire-severity-unique-species-list.csv")
-```
 
 
 # plot locations/distribution
@@ -4690,10 +4160,6 @@ ggplot(dplyr::filter(CA_cond, DSTRBCD1 %in% c(30, 31, 32)),
   labs(x = "Disturbance Code", y = "Count",
        title = "Fire-Related Disturbances (Codes 30–32)") +
   theme_minimal()
-```
-
-# climate extraction 
-```{r}
 ```
 
 # understory

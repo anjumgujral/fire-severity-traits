@@ -1,0 +1,1830 @@
+---
+title: "control-plot-species"
+author: "Anjum K. Gujral"
+date: "2026-07-28"
+output: html_document
+---
+
+# load data
+```{r}
+# all COND, PLOT, TREE, and SEEDLING data should be loaded
+```
+
+# CA
+## whole plot network
+```{r}
+# create a unique PLOT ID in COND and in PLOT tables 
+CA_COND_IDs <- CA_COND %>%
+  dplyr::mutate(
+    plot_id = paste(STATECD, UNITCD, COUNTYCD, PLOT, sep = "_")
+  )
+CA_PLOT_IDs <- CA_PLOT %>%
+  dplyr::mutate(
+    plot_id = paste(STATECD, UNITCD, COUNTYCD, PLOT, sep = "_")
+  )
+# create unique plot ids for CA_TREE
+CA_TREE_IDs <- CA_TREE %>%
+  dplyr::mutate(
+    plot_id = paste(STATECD, UNITCD, COUNTYCD, PLOT, sep = "_")
+  )
+# create unique plot ids for CA_SEEDLING
+CA_SEEDLING_IDs <- CA_SEEDLING %>%
+  dplyr::mutate(
+    plot_id = paste(STATECD, UNITCD, COUNTYCD, PLOT, sep = "_")
+  )
+
+# filter CA_COND_IDs for forest types only, no disturbance filtering
+CA_COND_forest_type <- CA_COND_IDs %>%
+  filter(FORTYPCD %in% c(201, 202, 221, 222, 224, 225, 226, 241, 261, 262, 263, 264, 265, 267, 268, 270, 271, 281, 301, 304, 305, 321, 341, 342, 361, 365, 371, 722, 911, 912, 922, 923, 933, 941, 961))
+           
+#(371, 201, 221, 222, 224, 225, 261, 922))
+
+# get the unique plot_ids that qualify
+CA_forest_type_plot_id <- CA_COND_forest_type %>%
+  distinct(plot_id) %>%
+  pull(plot_id)
+
+length(CA_forest_type_plot_id)
+
+# filter CA_PLOT_IDs for those plot_ids
+CA_PLOT_forest_type <- CA_PLOT_IDs %>%
+  filter(plot_id %in% CA_forest_type_plot_id)
+
+# filter CA_TREE_IDs for those plot_ids
+CA_TREE_forest_type <- CA_TREE_IDs %>%
+  filter(plot_id %in% CA_forest_type_plot_id)
+
+nrow(CA_PLOT_forest_type)
+n_distinct(CA_TREE_forest_type$plot_id)
+
+CA_TREE_forest_type_species <- CA_TREE_forest_type %>%
+  left_join(
+    REF_SPECIES %>%
+      mutate(species = paste(GENUS, SPECIES, sep = "_")) %>%
+      select(SPCD, species),
+    by = "SPCD"
+  )
+sum(is.na(CA_TREE_forest_type_species$species))
+n_distinct(CA_TREE_forest_type_species$species)
+
+# species from your new forest-type-only workflow
+CA_forest_type_all_species <- CA_TREE_forest_type_species %>%
+  distinct(species) %>%
+  pull(species)
+
+length(CA_forest_type_all_species)
+
+# make sure the species coming out of SEEDLING match TREE
+# filter CA_SEEDLING_IDs for those plot_ids
+CA_SEEDLING_forest_type <- CA_SEEDLING_IDs %>%
+  filter(plot_id %in% CA_forest_type_plot_id)
+
+CA_SEEDLING_forest_type_species <- CA_SEEDLING_forest_type %>%
+  left_join(
+    REF_SPECIES %>%
+      mutate(species = paste(GENUS, SPECIES, sep = "_")) %>%
+      select(SPCD, species),
+    by = "SPCD"
+  )
+
+# species list from seedling data (forest-type-only workflow)
+CA_forest_type_all_seedling_species <- CA_SEEDLING_forest_type_species %>%
+  distinct(species) %>%
+  pull(species)
+
+length(CA_forest_type_all_species)
+length(CA_forest_type_all_seedling_species)
+
+# species found in both tree and seedling data
+intersect(CA_forest_type_all_species, CA_forest_type_all_seedling_species)
+
+# species found only in tree data (mature trees, no seedlings recorded)
+setdiff(CA_forest_type_all_species, CA_forest_type_all_seedling_species)
+
+# species found only in seedling data (recruiting, but no mature trees recorded)
+setdiff(CA_forest_type_all_seedling_species, CA_forest_type_all_species)
+
+# create a shared species list
+CA_forest_type_all_species
+CA_forest_type_all_seedling_species
+
+CA_species <- data.frame(
+  species = unique(c(
+    CA_forest_type_all_species,
+    CA_forest_type_all_seedling_species
+  ))
+)
+
+```
+## dominance
+```{r}
+
+CA_tree_count <- CA_TREE_forest_type_species %>%
+  group_by(plot_id) %>%
+  summarise(total_trees_in_plot = n(), .groups = "drop")
+
+CA_tree_species_dominance <- CA_TREE_forest_type_species %>%
+  group_by(plot_id, species) %>%
+  summarise(species_count = n(), .groups = "drop") %>%
+  left_join(CA_tree_count, by = "plot_id") %>%
+  mutate(relative_abundance = species_count / total_trees_in_plot)
+
+CA_tree_species_summary <- CA_tree_species_dominance %>%
+  group_by(species) %>%
+  summarise(
+    n_plots_present  = n_distinct(plot_id),
+    avg_dominance    = mean(relative_abundance),
+    median_dominance = median(relative_abundance),
+    min_dominance    = min(relative_abundance),
+    max_dominance    = max(relative_abundance),
+    .groups = "drop"
+  ) %>%
+  mutate(frequency = n_plots_present / n_distinct(CA_TREE_forest_type_species$plot_id)) %>%
+  arrange(desc(frequency))
+
+CA_tree_species_summary
+
+# calculate dominance and commonness for seedling species too 
+
+CA_seedling_count <- CA_SEEDLING_forest_type_species %>%
+  group_by(plot_id) %>%
+  summarise(total_seedlings_in_plot = sum(TREECOUNT, na.rm = TRUE),
+            .groups = "drop")
+
+CA_seedling_species_dominance <- CA_SEEDLING_forest_type_species %>%
+  group_by(plot_id, species) %>%
+  summarise(species_count = sum(TREECOUNT, na.rm = TRUE), .groups = "drop") %>%
+  left_join(CA_seedling_count, by = "plot_id") %>%
+  filter(total_seedlings_in_plot > 0) %>%   # excludes plots with no actual seedling count data
+  mutate(relative_abundance = species_count / total_seedlings_in_plot)
+
+CA_seedling_species_summary <- CA_seedling_species_dominance %>%
+  group_by(species) %>%
+  summarise(
+    n_plots_present  = n_distinct(plot_id),
+    avg_dominance    = mean(relative_abundance),
+    median_dominance = median(relative_abundance),
+    min_dominance    = min(relative_abundance),
+    max_dominance    = max(relative_abundance),
+    .groups = "drop"
+  ) %>%
+  mutate(
+    frequency = n_plots_present / n_distinct(CA_seedling_species_dominance$plot_id)  # note: denominator now uses the filtered plot set
+  ) %>%
+  arrange(desc(frequency))
+
+CA_seedling_species_summary
+```
+
+# OR
+## whole plot network
+```{r}
+# create a unique PLOT ID in COND and in PLOT tables 
+OR_COND_IDs <- OR_COND %>%
+  dplyr::mutate(
+    plot_id = paste(STATECD, UNITCD, COUNTYCD, PLOT, sep = "_"))
+
+OR_PLOT_IDs <- OR_PLOT %>%
+  dplyr::mutate(
+    plot_id = paste(STATECD, UNITCD, COUNTYCD, PLOT, sep = "_"))
+
+# create unique plot ids for OR_TREE
+OR_TREE_IDs <- OR_TREE %>%
+  dplyr::mutate(
+    plot_id = paste(STATECD, UNITCD, COUNTYCD, PLOT, sep = "_"))
+
+# create unique plot ids for OR_SEEDLING
+OR_SEEDLING_IDs <- OR_SEEDLING %>%
+  dplyr::mutate(
+    plot_id = paste(STATECD, UNITCD, COUNTYCD, PLOT, sep = "_"))
+
+# filter CA_COND_IDs for forest types only, no disturbance filtering
+OR_COND_forest_type <- OR_COND_IDs %>%
+  filter(FORTYPCD %in% c(201, 202, 221, 222, 224, 225, 226, 241, 261, 262, 263, 264, 265, 267, 268, 270, 271, 281, 301, 304, 305, 321, 341, 342, 361, 365, 371, 722, 911, 912, 922, 923, 933, 941, 961))
+         
+#(371, 201, 221, 222, 224, 225, 261, 922))
+
+
+# get the unique plot_ids that qualify
+OR_forest_type_plot_id <- OR_COND_forest_type %>%
+  distinct(plot_id) %>%
+  pull(plot_id)
+
+length(OR_forest_type_plot_id)
+
+# filter OR_PLOT_IDs for those plot_ids
+OR_PLOT_forest_type <- OR_PLOT_IDs %>%
+  filter(plot_id %in% OR_forest_type_plot_id)
+
+# filter OR_TREE_IDs for those plot_ids
+OR_TREE_forest_type <- OR_TREE_IDs %>%
+  filter(plot_id %in% OR_forest_type_plot_id)
+
+nrow(OR_PLOT_forest_type)
+n_distinct(OR_TREE_forest_type$plot_id)
+
+OR_TREE_forest_type_species <- OR_TREE_forest_type %>%
+  left_join(
+    REF_SPECIES %>%
+      mutate(species = paste(GENUS, SPECIES, sep = "_")) %>%
+      select(SPCD, species),
+    by = "SPCD"
+  )
+
+sum(is.na(OR_TREE_forest_type_species$species))
+n_distinct(OR_TREE_forest_type_species$species)
+
+# species from your new forest-type-only workflow
+OR_forest_type_all_species <- OR_TREE_forest_type_species %>%
+  distinct(species) %>%
+  pull(species)
+
+length(OR_forest_type_all_species)
+
+# make sure the species coming out of SEEDLING match TREE
+# filter OR_SEEDLING_IDs for those plot_ids
+OR_SEEDLING_forest_type <- OR_SEEDLING_IDs %>%
+  filter(plot_id %in% OR_forest_type_plot_id)
+
+OR_SEEDLING_forest_type_species <- OR_SEEDLING_forest_type %>%
+  left_join(
+    REF_SPECIES %>%
+      mutate(species = paste(GENUS, SPECIES, sep = "_")) %>%
+      select(SPCD, species),
+    by = "SPCD"
+  )
+
+# species list from seedling data (forest-type-only workflow)
+OR_forest_type_all_seedling_species <- OR_SEEDLING_forest_type_species %>%
+  distinct(species) %>%
+  pull(species)
+
+length(OR_forest_type_all_species)
+length(OR_forest_type_all_seedling_species)
+
+# species found in both tree and seedling data
+intersect(OR_forest_type_all_species, OR_forest_type_all_seedling_species)
+
+# species found only in tree data (mature trees, no seedlings recorded)
+setdiff(OR_forest_type_all_species, OR_forest_type_all_seedling_species)
+
+# species found only in seedling data (recruiting, but no mature trees recorded)
+setdiff(OR_forest_type_all_seedling_species, OR_forest_type_all_species)
+
+# create a shared species list
+OR_forest_type_all_species
+OR_forest_type_all_seedling_species
+
+OR_species <- data.frame(
+  species = unique(c(
+    OR_forest_type_all_species,
+    OR_forest_type_all_seedling_species
+  ))
+)
+```
+
+## dominance
+```{r}
+## dominance
+
+OR_tree_count <- OR_TREE_forest_type_species %>%
+  group_by(plot_id) %>%
+  summarise(total_trees_in_plot = n(), .groups = "drop")
+
+OR_tree_species_dominance <- OR_TREE_forest_type_species %>%
+  group_by(plot_id, species) %>%
+  summarise(species_count = n(), .groups = "drop") %>%
+  left_join(OR_tree_count, by = "plot_id") %>%
+  mutate(relative_abundance = species_count / total_trees_in_plot)
+
+OR_tree_species_summary <- OR_tree_species_dominance %>%
+  group_by(species) %>%
+  summarise(
+    n_plots_present  = n_distinct(plot_id),
+    avg_dominance    = mean(relative_abundance),
+    median_dominance = median(relative_abundance),
+    min_dominance    = min(relative_abundance),
+    max_dominance    = max(relative_abundance),
+    .groups = "drop"
+  ) %>%
+  mutate(frequency = n_plots_present / n_distinct(OR_TREE_forest_type_species$plot_id)) %>%
+  arrange(desc(frequency))
+
+OR_tree_species_summary
+
+
+# calculate dominance and commonness for seedling species too 
+
+OR_seedling_count <- OR_SEEDLING_forest_type_species %>%
+  group_by(plot_id) %>%
+  summarise(
+    total_seedlings_in_plot = sum(TREECOUNT, na.rm = TRUE),
+    .groups = "drop"
+  )
+
+OR_seedling_species_dominance <- OR_SEEDLING_forest_type_species %>%
+  group_by(plot_id, species) %>%
+  summarise(species_count = sum(TREECOUNT, na.rm = TRUE), .groups = "drop") %>%
+  left_join(OR_seedling_count, by = "plot_id") %>%
+  filter(total_seedlings_in_plot > 0) %>%   # excludes plots with no actual seedling count data
+  mutate(relative_abundance = species_count / total_seedlings_in_plot)
+
+OR_seedling_species_summary <- OR_seedling_species_dominance %>%
+  group_by(species) %>%
+  summarise(
+    n_plots_present  = n_distinct(plot_id),
+    avg_dominance    = mean(relative_abundance),
+    median_dominance = median(relative_abundance),
+    min_dominance    = min(relative_abundance),
+    max_dominance    = max(relative_abundance),
+    .groups = "drop"
+  ) %>%
+  mutate(
+    frequency = n_plots_present / n_distinct(OR_seedling_species_dominance$plot_id)  # note: denominator now uses the filtered plot set
+  ) %>%
+  arrange(desc(frequency))
+
+OR_seedling_species_summary
+```
+
+#WA
+## whole plot network
+```{r}
+# create a unique PLOT ID in COND and in PLOT tables 
+WA_COND_IDs <- WA_COND %>%
+  dplyr::mutate(
+    plot_id = paste(STATECD, UNITCD, COUNTYCD, PLOT, sep = "_")
+  )
+
+WA_PLOT_IDs <- WA_PLOT %>%
+  dplyr::mutate(
+    plot_id = paste(STATECD, UNITCD, COUNTYCD, PLOT, sep = "_")
+  )
+
+# create unique plot ids for OR_TREE
+WA_TREE_IDs <- WA_TREE %>%
+  dplyr::mutate(
+    plot_id = paste(STATECD, UNITCD, COUNTYCD, PLOT, sep = "_")
+  )
+
+# create unique plot ids for OR_SEEDLING
+WA_SEEDLING_IDs <- WA_SEEDLING %>%
+  dplyr::mutate(
+    plot_id = paste(STATECD, UNITCD, COUNTYCD, PLOT, sep = "_")
+  )
+
+# filter CA_COND_IDs for forest types only, no disturbance filtering
+WA_COND_forest_type <- WA_COND_IDs %>%
+  filter(FORTYPCD %in% c(201, 202, 221, 222, 224, 225, 226, 241, 261, 262, 263, 264, 265, 267, 268, 270, 271, 281, 301, 304, 305, 321, 341, 342, 361, 365, 371, 722, 911, 912, 922, 923, 933, 941, 961))
+         
+         
+#(371, 201, 221, 222, 224, 225, 261, 922))
+
+# get the unique plot_ids that qualify
+WA_forest_type_plot_id <- WA_COND_forest_type %>%
+  distinct(plot_id) %>%
+  pull(plot_id)
+
+length(WA_forest_type_plot_id)
+
+# filter CA_PLOT_IDs for those plot_ids
+WA_PLOT_forest_type <- WA_PLOT_IDs %>%
+  filter(plot_id %in% WA_forest_type_plot_id)
+
+# filter CA_TREE_IDs for those plot_ids
+WA_TREE_forest_type <- WA_TREE_IDs %>%
+  filter(plot_id %in% WA_forest_type_plot_id)
+
+nrow(WA_PLOT_forest_type)
+n_distinct(WA_TREE_forest_type$plot_id)
+
+WA_TREE_forest_type_species <- WA_TREE_forest_type %>%
+  left_join(
+    REF_SPECIES %>%
+      mutate(species = paste(GENUS, SPECIES, sep = "_")) %>%
+      select(SPCD, species),
+    by = "SPCD"
+  )
+sum(is.na(WA_TREE_forest_type_species$species))
+n_distinct(WA_TREE_forest_type_species$species) # 49 species
+
+# species from your new forest-type-only workflow
+WA_forest_type_all_species <- WA_TREE_forest_type_species %>%
+  distinct(species) %>%
+  pull(species)
+
+length(WA_forest_type_all_species)
+
+# make sure the species coming out of SEEDLING match TREE
+# filter CA_SEEDLING_IDs for those plot_ids
+WA_SEEDLING_forest_type <- WA_SEEDLING_IDs %>%
+  filter(plot_id %in% WA_forest_type_plot_id)
+
+WA_SEEDLING_forest_type_species <- WA_SEEDLING_forest_type %>%
+  left_join(
+    REF_SPECIES %>%
+      mutate(species = paste(GENUS, SPECIES, sep = "_")) %>%
+      select(SPCD, species),
+    by = "SPCD"
+  )
+
+# species list from seedling data (forest-type-only workflow)
+WA_forest_type_all_seedling_species <- WA_SEEDLING_forest_type_species %>%
+  distinct(species) %>%
+  pull(species)
+
+length(WA_forest_type_all_species)
+length(WA_forest_type_all_seedling_species)
+
+# species found in both tree and seedling data
+intersect(WA_forest_type_all_species, WA_forest_type_all_seedling_species)
+
+# species found only in tree data (mature trees, no seedlings recorded)
+setdiff(WA_forest_type_all_species, WA_forest_type_all_seedling_species)
+
+# species found only in seedling data (recruiting, but no mature trees recorded)
+setdiff(WA_forest_type_all_seedling_species, WA_forest_type_all_species)
+
+# create a shared species list
+WA_forest_type_all_species
+WA_forest_type_all_seedling_species
+
+WA_species <- data.frame(
+  species = unique(c(
+    WA_forest_type_all_species,
+    WA_forest_type_all_seedling_species
+  ))
+)
+```
+
+## dominance
+```{r}
+## dominance
+
+WA_tree_count <- WA_TREE_forest_type_species %>%
+  group_by(plot_id) %>%
+  summarise(total_trees_in_plot = n(), .groups = "drop")
+
+WA_tree_species_dominance <- WA_TREE_forest_type_species %>%
+  group_by(plot_id, species) %>%
+  summarise(species_count = n(), .groups = "drop") %>%
+  left_join(WA_tree_count, by = "plot_id") %>%
+  mutate(relative_abundance = species_count / total_trees_in_plot)
+
+WA_tree_species_summary <- WA_tree_species_dominance %>%
+  group_by(species) %>%
+  summarise(
+    n_plots_present  = n_distinct(plot_id),
+    avg_dominance    = mean(relative_abundance),
+    median_dominance = median(relative_abundance),
+    min_dominance    = min(relative_abundance),
+    max_dominance    = max(relative_abundance),
+    .groups = "drop"
+  ) %>%
+  mutate(frequency = n_plots_present / n_distinct(WA_TREE_forest_type_species$plot_id)) %>%
+  arrange(desc(frequency))
+
+WA_tree_species_summary
+
+
+# calculate dominance and commonness for seedling species too 
+
+WA_seedling_count <- WA_SEEDLING_forest_type_species %>%
+  group_by(plot_id) %>%
+  summarise(
+    total_seedlings_in_plot = sum(TREECOUNT, na.rm = TRUE),
+    .groups = "drop"
+  )
+
+WA_seedling_species_dominance <- WA_SEEDLING_forest_type_species %>%
+  group_by(plot_id, species) %>%
+  summarise(species_count = sum(TREECOUNT, na.rm = TRUE), .groups = "drop") %>%
+  left_join(WA_seedling_count, by = "plot_id") %>%
+  filter(total_seedlings_in_plot > 0) %>%   # excludes plots with no actual seedling count data
+  mutate(relative_abundance = species_count / total_seedlings_in_plot)
+
+WA_seedling_species_summary <- WA_seedling_species_dominance %>%
+  group_by(species) %>%
+  summarise(
+    n_plots_present  = n_distinct(plot_id),
+    avg_dominance    = mean(relative_abundance),
+    median_dominance = median(relative_abundance),
+    min_dominance    = min(relative_abundance),
+    max_dominance    = max(relative_abundance),
+    .groups = "drop"
+  ) %>%
+  mutate(
+    frequency = n_plots_present / n_distinct(WA_seedling_species_dominance$plot_id)  # note: denominator now uses the filtered plot set
+  ) %>%
+  arrange(desc(frequency))
+
+WA_seedling_species_summary
+```
+
+#ID
+## whole plot network
+```{r}
+ID_COND_IDs <- ID_COND %>%
+  dplyr::mutate(
+    plot_id = paste(STATECD, UNITCD, COUNTYCD, PLOT, sep = "_")
+  )
+ID_PLOT_IDs <- ID_PLOT %>%
+  dplyr::mutate(
+    plot_id = paste(STATECD, UNITCD, COUNTYCD, PLOT, sep = "_")
+  )
+ID_TREE_IDs <- ID_TREE %>%
+  dplyr::mutate(
+    plot_id = paste(STATECD, UNITCD, COUNTYCD, PLOT, sep = "_")
+  )
+# create unique plot ids for CA_SEEDLING
+ID_SEEDLING_IDs <- ID_SEEDLING %>%
+  dplyr::mutate(
+    plot_id = paste(STATECD, UNITCD, COUNTYCD, PLOT, sep = "_")
+  )
+
+# filter CA_COND_IDs for forest types only, no disturbance filtering
+ID_COND_forest_type <- ID_COND_IDs %>%
+  filter(FORTYPCD %in% c(201, 202, 221, 222, 224, 225, 226, 241, 261, 262, 263, 264, 265, 267, 268, 270, 271, 281, 301, 304, 305, 321, 341, 342, 361, 365, 371, 722, 911, 912, 922, 923, 933, 941, 961))
+         
+#(371, 201, 221, 222, 224, 225, 261, 922))
+
+# get the unique plot_ids that qualify
+ID_forest_type_plot_id <- ID_COND_forest_type %>%
+  distinct(plot_id) %>%
+  pull(plot_id)
+
+length(ID_forest_type_plot_id)
+
+# filter CA_PLOT_IDs for those plot_ids
+ID_PLOT_forest_type <- ID_PLOT_IDs %>%
+  filter(plot_id %in% ID_forest_type_plot_id)
+
+# filter CA_TREE_IDs for those plot_ids
+ID_TREE_forest_type <- ID_TREE_IDs %>%
+  filter(plot_id %in% ID_forest_type_plot_id)
+
+nrow(ID_PLOT_forest_type)
+n_distinct(ID_TREE_forest_type$plot_id)
+
+ID_TREE_forest_type_species <- ID_TREE_forest_type %>%
+  left_join(
+    REF_SPECIES %>%
+      mutate(species = paste(GENUS, SPECIES, sep = "_")) %>%
+      select(SPCD, species),
+    by = "SPCD"
+  )
+sum(is.na(ID_TREE_forest_type_species$species))
+n_distinct(ID_TREE_forest_type_species$species)
+
+# how different are the species from this workflow and the previous control plot filtering by climate?
+
+
+# species from your new forest-type-only workflow
+ID_forest_type_all_species <- ID_TREE_forest_type_species %>%
+  distinct(species) %>%
+  pull(species)
+
+# make sure the species coming out of SEEDLING match TREE
+# filter CA_SEEDLING_IDs for those plot_ids
+ID_SEEDLING_forest_type <- ID_SEEDLING_IDs %>%
+  filter(plot_id %in% ID_forest_type_plot_id)
+
+ID_SEEDLING_forest_type_species <- ID_SEEDLING_forest_type %>%
+  left_join(
+    REF_SPECIES %>%
+      mutate(species = paste(GENUS, SPECIES, sep = "_")) %>%
+      select(SPCD, species),
+    by = "SPCD"
+  )
+
+# species list from seedling data (forest-type-only workflow)
+ID_forest_type_all_seedling_species <- ID_SEEDLING_forest_type_species %>%
+  distinct(species) %>%
+  pull(species)
+
+length(ID_forest_type_all_species)
+length(ID_forest_type_all_seedling_species)
+
+# species found in both tree and seedling data
+intersect(ID_forest_type_all_species, ID_forest_type_all_seedling_species)
+
+# species found only in tree data (mature trees, no seedlings recorded)
+setdiff(ID_forest_type_all_species, ID_forest_type_all_seedling_species)
+
+# species found only in seedling data (recruiting, but no mature trees recorded)
+setdiff(ID_forest_type_all_seedling_species, ID_forest_type_all_species)
+
+# create a shared species list
+ID_forest_type_all_species
+ID_forest_type_all_seedling_species
+
+ID_species <- data.frame(
+  species = unique(c(
+    ID_forest_type_all_species,
+    ID_forest_type_all_seedling_species
+  ))
+)
+
+```
+
+## dominance
+```{r}
+ID_tree_count <- ID_TREE_forest_type_species %>%
+  group_by(plot_id) %>%
+  summarise(total_trees_in_plot = n(), .groups = "drop")
+
+ID_tree_species_dominance <- ID_TREE_forest_type_species %>%
+  group_by(plot_id, species) %>%
+  summarise(species_count = n(), .groups = "drop") %>%
+  left_join(ID_tree_count, by = "plot_id") %>%
+  mutate(relative_abundance = species_count / total_trees_in_plot)
+
+ID_tree_species_summary <- ID_tree_species_dominance %>%
+  group_by(species) %>%
+  summarise(
+    n_plots_present  = n_distinct(plot_id),
+    avg_dominance    = mean(relative_abundance),
+    median_dominance = median(relative_abundance),
+    min_dominance    = min(relative_abundance),
+    max_dominance    = max(relative_abundance),
+    .groups = "drop"
+  ) %>%
+  mutate(frequency = n_plots_present / n_distinct(ID_TREE_forest_type_species$plot_id)) %>%
+  arrange(desc(frequency))
+
+ID_tree_species_summary
+
+ID_seedling_count <- ID_SEEDLING_forest_type_species %>%
+  group_by(plot_id) %>%
+  summarise(
+    total_seedlings_in_plot = sum(TREECOUNT, na.rm = TRUE),
+    .groups = "drop"
+  )
+
+ID_seedling_species_dominance <- ID_SEEDLING_forest_type_species %>%
+  group_by(plot_id, species) %>%
+  summarise(species_count = sum(TREECOUNT, na.rm = TRUE), .groups = "drop") %>%
+  left_join(ID_seedling_count, by = "plot_id") %>%
+  filter(total_seedlings_in_plot > 0) %>%   # excludes plots with no actual seedling count data
+  mutate(relative_abundance = species_count / total_seedlings_in_plot)
+
+ID_seedling_species_summary <- ID_seedling_species_dominance %>%
+  group_by(species) %>%
+  summarise(
+    n_plots_present  = n_distinct(plot_id),
+    avg_dominance    = mean(relative_abundance),
+    median_dominance = median(relative_abundance),
+    min_dominance    = min(relative_abundance),
+    max_dominance    = max(relative_abundance),
+    .groups = "drop"
+  ) %>%
+  mutate(
+    frequency = n_plots_present / n_distinct(ID_seedling_species_dominance$plot_id)  # note: denominator now uses the filtered plot set
+  ) %>%
+  arrange(desc(frequency))
+
+ID_seedling_species_summary
+```
+
+
+#MT
+## whole plot network
+```{r}
+MT_COND_IDs <- MT_COND %>%
+  dplyr::mutate(
+    plot_id = paste(STATECD, UNITCD, COUNTYCD, PLOT, sep = "_")
+  )
+MT_PLOT_IDs <- MT_PLOT %>%
+  dplyr::mutate(
+    plot_id = paste(STATECD, UNITCD, COUNTYCD, PLOT, sep = "_")
+  )
+# create unique plot ids for CA_TREE
+MT_TREE_IDs <- MT_TREE %>%
+  dplyr::mutate(
+    plot_id = paste(STATECD, UNITCD, COUNTYCD, PLOT, sep = "_")
+  )
+
+# create unique plot ids for CA_SEEDLING
+MT_SEEDLING_IDs <- MT_SEEDLING %>%
+  dplyr::mutate(
+    plot_id = paste(STATECD, UNITCD, COUNTYCD, PLOT, sep = "_")
+  )
+# filter CA_COND_IDs for forest types only, no disturbance filtering
+MT_COND_forest_type <- MT_COND_IDs %>%
+  filter(FORTYPCD %in% c(201, 202, 221, 222, 224, 225, 226, 241, 261, 262, 263, 264, 265, 267, 268, 270, 271, 281, 301, 304, 305, 321, 341, 342, 361, 365, 371, 722, 911, 912, 922, 923, 933, 941, 961))
+         
+#(371, 201, 221, 222, 224, 225, 261, 922))
+
+# get the unique plot_ids that qualify
+MT_forest_type_plot_id <- MT_COND_forest_type %>%
+  distinct(plot_id) %>%
+  pull(plot_id)
+
+length(MT_forest_type_plot_id)
+
+# filter CA_PLOT_IDs for those plot_ids
+MT_PLOT_forest_type <- MT_PLOT_IDs %>%
+  filter(plot_id %in% MT_forest_type_plot_id)
+
+# filter CA_TREE_IDs for those plot_ids
+MT_TREE_forest_type <- MT_TREE_IDs %>%
+  filter(plot_id %in% MT_forest_type_plot_id)
+
+nrow(MT_PLOT_forest_type)
+n_distinct(MT_TREE_forest_type$plot_id)
+
+MT_TREE_forest_type_species <- MT_TREE_forest_type %>%
+  left_join(
+    REF_SPECIES %>%
+      mutate(species = paste(GENUS, SPECIES, sep = "_")) %>%
+      select(SPCD, species),
+    by = "SPCD"
+  )
+sum(is.na(MT_TREE_forest_type_species$species))
+n_distinct(MT_TREE_forest_type_species$species)
+
+
+
+# species from your new forest-type-only workflow
+MT_forest_type_all_species <- MT_TREE_forest_type_species %>%
+  distinct(species) %>%
+  pull(species)
+
+# make sure the species coming out of SEEDLING match TREE
+# filter MT_SEEDLING_IDs for those plot_ids
+MT_SEEDLING_forest_type <- MT_SEEDLING_IDs %>%
+  filter(plot_id %in% MT_forest_type_plot_id)
+
+MT_SEEDLING_forest_type_species <- MT_SEEDLING_forest_type %>%
+  left_join(
+    REF_SPECIES %>%
+      mutate(species = paste(GENUS, SPECIES, sep = "_")) %>%
+      select(SPCD, species),
+    by = "SPCD"
+  )
+
+# species list from seedling data (forest-type-only workflow)
+MT_forest_type_all_seedling_species <- MT_SEEDLING_forest_type_species %>%
+  distinct(species) %>%
+  pull(species)
+
+length(MT_forest_type_all_species)
+length(MT_forest_type_all_seedling_species)
+
+# species found in both tree and seedling data
+intersect(MT_forest_type_all_species, MT_forest_type_all_seedling_species)
+
+# species found only in tree data (mature trees, no seedlings recorded)
+setdiff(MT_forest_type_all_species, MT_forest_type_all_seedling_species)
+
+# species found only in seedling data (recruiting, but no mature trees recorded)
+setdiff(MT_forest_type_all_seedling_species, MT_forest_type_all_species)
+
+# create a shared species list
+MT_forest_type_all_species
+MT_forest_type_all_seedling_species
+
+MT_species <- data.frame(
+  species = unique(c(
+    MT_forest_type_all_species,
+    MT_forest_type_all_seedling_species
+  ))
+)
+```
+
+##dominance
+```{r}
+## dominance
+
+MT_tree_count <- MT_TREE_forest_type_species %>%
+  group_by(plot_id) %>%
+  summarise(total_trees_in_plot = n(), .groups = "drop")
+
+MT_tree_species_dominance <- MT_TREE_forest_type_species %>%
+  group_by(plot_id, species) %>%
+  summarise(species_count = n(), .groups = "drop") %>%
+  left_join(MT_tree_count, by = "plot_id") %>%
+  mutate(relative_abundance = species_count / total_trees_in_plot)
+
+MT_tree_species_summary <- MT_tree_species_dominance %>%
+  group_by(species) %>%
+  summarise(
+    n_plots_present  = n_distinct(plot_id),
+    avg_dominance    = mean(relative_abundance),
+    median_dominance = median(relative_abundance),
+    min_dominance    = min(relative_abundance),
+    max_dominance    = max(relative_abundance),
+    .groups = "drop"
+  ) %>%
+  mutate(frequency = n_plots_present / n_distinct(MT_TREE_forest_type_species$plot_id)) %>%
+  arrange(desc(frequency))
+
+MT_tree_species_summary
+
+
+# calculate dominance and commonness for seedling species too 
+
+MT_seedling_count <- MT_SEEDLING_forest_type_species %>%
+  group_by(plot_id) %>%
+  summarise(
+    total_seedlings_in_plot = sum(TREECOUNT, na.rm = TRUE),
+    .groups = "drop"
+  )
+
+MT_seedling_species_dominance <- MT_SEEDLING_forest_type_species %>%
+  group_by(plot_id, species) %>%
+  summarise(species_count = sum(TREECOUNT, na.rm = TRUE), .groups = "drop") %>%
+  left_join(MT_seedling_count, by = "plot_id") %>%
+  filter(total_seedlings_in_plot > 0) %>%   # excludes plots with no actual seedling count data
+  mutate(relative_abundance = species_count / total_seedlings_in_plot)
+
+MT_seedling_species_summary <- MT_seedling_species_dominance %>%
+  group_by(species) %>%
+  summarise(
+    n_plots_present  = n_distinct(plot_id),
+    avg_dominance    = mean(relative_abundance),
+    median_dominance = median(relative_abundance),
+    min_dominance    = min(relative_abundance),
+    max_dominance    = max(relative_abundance),
+    .groups = "drop"
+  ) %>%
+  mutate(
+    frequency = n_plots_present / n_distinct(MT_seedling_species_dominance$plot_id)  # note: denominator now uses the filtered plot set
+  ) %>%
+  arrange(desc(frequency))
+
+MT_seedling_species_summary
+```
+
+# NV
+## whole plot network
+```{r}
+# NV
+## whole plot network
+
+# create a unique PLOT ID in COND and in PLOT tables 
+NV_COND_IDs <- NV_COND %>%
+  dplyr::mutate(
+    plot_id = paste(STATECD, UNITCD, COUNTYCD, PLOT, sep = "_")
+  )
+
+NV_PLOT_IDs <- NV_PLOT %>%
+  dplyr::mutate(
+    plot_id = paste(STATECD, UNITCD, COUNTYCD, PLOT, sep = "_")
+  )
+
+# create unique plot ids for NV_TREE
+NV_TREE_IDs <- NV_TREE %>%
+  dplyr::mutate(
+    plot_id = paste(STATECD, UNITCD, COUNTYCD, PLOT, sep = "_")
+  )
+
+# create unique plot ids for NV_SEEDLING
+NV_SEEDLING_IDs <- NV_SEEDLING %>%
+  dplyr::mutate(
+    plot_id = paste(STATECD, UNITCD, COUNTYCD, PLOT, sep = "_")
+  )
+
+# filter NV_COND_IDs for forest types only, no disturbance filtering
+NV_COND_forest_type <- NV_COND_IDs %>%
+  filter(FORTYPCD %in% c(
+    201, 202, 221, 222, 224, 225, 226, 241, 261, 262,
+    263, 264, 265, 267, 268, 270, 271, 281, 301, 304,
+    305, 321, 341, 342, 361, 365, 371, 722, 911, 912,
+    922, 923, 933, 941, 961
+  ))
+
+# get the unique plot_ids that qualify
+NV_forest_type_plot_id <- NV_COND_forest_type %>%
+  distinct(plot_id) %>%
+  pull(plot_id)
+
+length(NV_forest_type_plot_id)
+
+# filter NV_PLOT_IDs for those plot_ids
+NV_PLOT_forest_type <- NV_PLOT_IDs %>%
+  filter(plot_id %in% NV_forest_type_plot_id)
+
+# filter NV_TREE_IDs for those plot_ids
+NV_TREE_forest_type <- NV_TREE_IDs %>%
+  filter(plot_id %in% NV_forest_type_plot_id)
+
+nrow(NV_PLOT_forest_type)
+n_distinct(NV_TREE_forest_type$plot_id)
+
+NV_TREE_forest_type_species <- NV_TREE_forest_type %>%
+  left_join(
+    REF_SPECIES %>%
+      mutate(species = paste(GENUS, SPECIES, sep = "_")) %>%
+      select(SPCD, species),
+    by = "SPCD"
+  )
+
+sum(is.na(NV_TREE_forest_type_species$species))
+n_distinct(NV_TREE_forest_type_species$species)
+
+
+# species from your new forest-type-only workflow
+NV_forest_type_all_species <- NV_TREE_forest_type_species %>%
+  distinct(species) %>%
+  pull(species)
+
+length(NV_forest_type_all_species)
+
+
+# make sure the species coming out of SEEDLING match TREE
+# filter NV_SEEDLING_IDs for those plot_ids
+NV_SEEDLING_forest_type <- NV_SEEDLING_IDs %>%
+  filter(plot_id %in% NV_forest_type_plot_id)
+
+NV_SEEDLING_forest_type_species <- NV_SEEDLING_forest_type %>%
+  left_join(
+    REF_SPECIES %>%
+      mutate(species = paste(GENUS, SPECIES, sep = "_")) %>%
+      select(SPCD, species),
+    by = "SPCD"
+  )
+
+
+# species list from seedling data (forest-type-only workflow)
+NV_forest_type_all_seedling_species <- NV_SEEDLING_forest_type_species %>%
+  distinct(species) %>%
+  pull(species)
+
+length(NV_forest_type_all_species)
+length(NV_forest_type_all_seedling_species)
+
+
+# species found in both tree and seedling data
+intersect(NV_forest_type_all_species, NV_forest_type_all_seedling_species)
+
+# species found only in tree data (mature trees, no seedlings recorded)
+setdiff(NV_forest_type_all_species, NV_forest_type_all_seedling_species)
+
+# species found only in seedling data (recruiting, but no mature trees recorded)
+setdiff(NV_forest_type_all_seedling_species, NV_forest_type_all_species)
+
+
+# create a shared species list
+NV_forest_type_all_species
+NV_forest_type_all_seedling_species
+
+NV_species <- data.frame(
+  species = unique(c(
+    NV_forest_type_all_species,
+    NV_forest_type_all_seedling_species
+  ))
+)
+```
+## dominance
+```{r}
+NV_tree_count <- NV_TREE_forest_type_species %>%
+  group_by(plot_id) %>%
+  summarise(total_trees_in_plot = n(), .groups = "drop")
+
+NV_tree_species_dominance <- NV_TREE_forest_type_species %>%
+  group_by(plot_id, species) %>%
+  summarise(species_count = n(), .groups = "drop") %>%
+  left_join(NV_tree_count, by = "plot_id") %>%
+  mutate(relative_abundance = species_count / total_trees_in_plot)
+
+NV_tree_species_summary <- NV_tree_species_dominance %>%
+  group_by(species) %>%
+  summarise(
+    n_plots_present  = n_distinct(plot_id),
+    avg_dominance    = mean(relative_abundance),
+    median_dominance = median(relative_abundance),
+    min_dominance    = min(relative_abundance),
+    max_dominance    = max(relative_abundance),
+    .groups = "drop"
+  ) %>%
+  mutate(frequency = n_plots_present / n_distinct(NV_TREE_forest_type_species$plot_id)) %>%
+  arrange(desc(frequency))
+
+NV_tree_species_summary
+
+
+# calculate dominance and commonness for seedling species too 
+
+NV_seedling_count <- NV_SEEDLING_forest_type_species %>%
+  group_by(plot_id) %>%
+  summarise(
+    total_seedlings_in_plot = sum(TREECOUNT, na.rm = TRUE),
+    .groups = "drop"
+  )
+
+NV_seedling_species_dominance <- NV_SEEDLING_forest_type_species %>%
+  group_by(plot_id, species) %>%
+  summarise(species_count = sum(TREECOUNT, na.rm = TRUE), .groups = "drop") %>%
+  left_join(NV_seedling_count, by = "plot_id") %>%
+  filter(total_seedlings_in_plot > 0) %>%   # excludes plots with no actual seedling count data
+  mutate(relative_abundance = species_count / total_seedlings_in_plot)
+
+NV_seedling_species_summary <- NV_seedling_species_dominance %>%
+  group_by(species) %>%
+  summarise(
+    n_plots_present  = n_distinct(plot_id),
+    avg_dominance    = mean(relative_abundance),
+    median_dominance = median(relative_abundance),
+    min_dominance    = min(relative_abundance),
+    max_dominance    = max(relative_abundance),
+    .groups = "drop"
+  ) %>%
+  mutate(
+    frequency = n_plots_present / n_distinct(NV_seedling_species_dominance$plot_id)  # note: denominator now uses the filtered plot set
+  ) %>%
+  arrange(desc(frequency))
+
+NV_seedling_species_summary
+
+```
+
+# UT
+## whole plot network
+```{r}
+# UT
+## whole plot network
+
+# create a unique PLOT ID in COND and in PLOT tables 
+UT_COND_IDs <- UT_COND %>%
+  dplyr::mutate(
+    plot_id = paste(STATECD, UNITCD, COUNTYCD, PLOT, sep = "_")
+  )
+
+UT_PLOT_IDs <- UT_PLOT %>%
+  dplyr::mutate(
+    plot_id = paste(STATECD, UNITCD, COUNTYCD, PLOT, sep = "_")
+  )
+
+# create unique plot ids for UT_TREE
+UT_TREE_IDs <- UT_TREE %>%
+  dplyr::mutate(
+    plot_id = paste(STATECD, UNITCD, COUNTYCD, PLOT, sep = "_")
+  )
+
+# create unique plot ids for UT_SEEDLING
+UT_SEEDLING_IDs <- UT_SEEDLING %>%
+  dplyr::mutate(
+    plot_id = paste(STATECD, UNITCD, COUNTYCD, PLOT, sep = "_")
+  )
+
+# filter UT_COND_IDs for forest types only, no disturbance filtering
+UT_COND_forest_type <- UT_COND_IDs %>%
+  filter(FORTYPCD %in% c(
+    201, 202, 221, 222, 224, 225, 226, 241, 261, 262,
+    263, 264, 265, 267, 268, 270, 271, 281, 301, 304,
+    305, 321, 341, 342, 361, 365, 371, 722, 911, 912,
+    922, 923, 933, 941, 961
+  ))
+
+# get the unique plot_ids that qualify
+UT_forest_type_plot_id <- UT_COND_forest_type %>%
+  distinct(plot_id) %>%
+  pull(plot_id)
+
+length(UT_forest_type_plot_id)
+
+# filter UT_PLOT_IDs for those plot_ids
+UT_PLOT_forest_type <- UT_PLOT_IDs %>%
+  filter(plot_id %in% UT_forest_type_plot_id)
+
+# filter UT_TREE_IDs for those plot_ids
+UT_TREE_forest_type <- UT_TREE_IDs %>%
+  filter(plot_id %in% UT_forest_type_plot_id)
+
+nrow(UT_PLOT_forest_type)
+n_distinct(UT_TREE_forest_type$plot_id)
+
+UT_TREE_forest_type_species <- UT_TREE_forest_type %>%
+  left_join(
+    REF_SPECIES %>%
+      mutate(species = paste(GENUS, SPECIES, sep = "_")) %>%
+      select(SPCD, species),
+    by = "SPCD"
+  )
+
+sum(is.na(UT_TREE_forest_type_species$species))
+n_distinct(UT_TREE_forest_type_species$species)
+
+
+# species from your new forest-type-only workflow
+UT_forest_type_all_species <- UT_TREE_forest_type_species %>%
+  distinct(species) %>%
+  pull(species)
+
+length(UT_forest_type_all_species)
+
+
+# make sure the species coming out of SEEDLING match TREE
+# filter UT_SEEDLING_IDs for those plot_ids
+UT_SEEDLING_forest_type <- UT_SEEDLING_IDs %>%
+  filter(plot_id %in% UT_forest_type_plot_id)
+
+UT_SEEDLING_forest_type_species <- UT_SEEDLING_forest_type %>%
+  left_join(
+    REF_SPECIES %>%
+      mutate(species = paste(GENUS, SPECIES, sep = "_")) %>%
+      select(SPCD, species),
+    by = "SPCD"
+  )
+
+
+# species list from seedling data (forest-type-only workflow)
+UT_forest_type_all_seedling_species <- UT_SEEDLING_forest_type_species %>%
+  distinct(species) %>%
+  pull(species)
+
+length(UT_forest_type_all_species)
+length(UT_forest_type_all_seedling_species)
+
+
+# species found in both tree and seedling data
+intersect(UT_forest_type_all_species, UT_forest_type_all_seedling_species)
+
+# species found only in tree data (mature trees, no seedlings recorded)
+setdiff(UT_forest_type_all_species, UT_forest_type_all_seedling_species)
+
+# species found only in seedling data (recruiting, but no mature trees recorded)
+setdiff(UT_forest_type_all_seedling_species, UT_forest_type_all_species)
+
+
+# create a shared species list
+UT_forest_type_all_species
+UT_forest_type_all_seedling_species
+
+UT_species <- data.frame(
+  species = unique(c(
+    UT_forest_type_all_species,
+    UT_forest_type_all_seedling_species
+  ))
+)
+```
+
+## dominance
+```{r}
+UT_tree_count <- UT_TREE_forest_type_species %>%
+  group_by(plot_id) %>%
+  summarise(total_trees_in_plot = n(), .groups = "drop")
+
+UT_tree_species_dominance <- UT_TREE_forest_type_species %>%
+  group_by(plot_id, species) %>%
+  summarise(species_count = n(), .groups = "drop") %>%
+  left_join(UT_tree_count, by = "plot_id") %>%
+  mutate(relative_abundance = species_count / total_trees_in_plot)
+
+UT_tree_species_summary <- UT_tree_species_dominance %>%
+  group_by(species) %>%
+  summarise(
+    n_plots_present  = n_distinct(plot_id),
+    avg_dominance    = mean(relative_abundance),
+    median_dominance = median(relative_abundance),
+    min_dominance    = min(relative_abundance),
+    max_dominance    = max(relative_abundance),
+    .groups = "drop"
+  ) %>%
+  mutate(frequency = n_plots_present / n_distinct(UT_TREE_forest_type_species$plot_id)) %>%
+  arrange(desc(frequency))
+
+UT_tree_species_summary
+
+
+# calculate dominance and commonness for seedling species too 
+
+UT_seedling_count <- UT_SEEDLING_forest_type_species %>%
+  group_by(plot_id) %>%
+  summarise(
+    total_seedlings_in_plot = sum(TREECOUNT, na.rm = TRUE),
+    .groups = "drop"
+  )
+
+UT_seedling_species_dominance <- UT_SEEDLING_forest_type_species %>%
+  group_by(plot_id, species) %>%
+  summarise(species_count = sum(TREECOUNT, na.rm = TRUE), .groups = "drop") %>%
+  left_join(UT_seedling_count, by = "plot_id") %>%
+  filter(total_seedlings_in_plot > 0) %>%
+  mutate(relative_abundance = species_count / total_seedlings_in_plot)
+
+UT_seedling_species_summary <- UT_seedling_species_dominance %>%
+  group_by(species) %>%
+  summarise(
+    n_plots_present  = n_distinct(plot_id),
+    avg_dominance    = mean(relative_abundance),
+    median_dominance = median(relative_abundance),
+    min_dominance    = min(relative_abundance),
+    max_dominance    = max(relative_abundance),
+    .groups = "drop"
+  ) %>%
+  mutate(
+    frequency = n_plots_present / n_distinct(UT_seedling_species_dominance$plot_id)
+  ) %>%
+  arrange(desc(frequency))
+
+UT_seedling_species_summary
+```
+
+# CO
+## whole plot network
+```{r}
+# create a unique PLOT ID in COND and in PLOT tables 
+CO_COND_IDs <- CO_COND %>%
+  dplyr::mutate(
+    plot_id = paste(STATECD, UNITCD, COUNTYCD, PLOT, sep = "_")
+  )
+
+CO_PLOT_IDs <- CO_PLOT %>%
+  dplyr::mutate(
+    plot_id = paste(STATECD, UNITCD, COUNTYCD, PLOT, sep = "_")
+  )
+
+# create unique plot ids for CO_TREE
+CO_TREE_IDs <- CO_TREE %>%
+  dplyr::mutate(
+    plot_id = paste(STATECD, UNITCD, COUNTYCD, PLOT, sep = "_")
+  )
+
+# create unique plot ids for CO_SEEDLING
+CO_SEEDLING_IDs <- CO_SEEDLING %>%
+  dplyr::mutate(
+    plot_id = paste(STATECD, UNITCD, COUNTYCD, PLOT, sep = "_")
+  )
+
+# filter CO_COND_IDs for forest types only, no disturbance filtering
+CO_COND_forest_type <- CO_COND_IDs %>%
+  filter(FORTYPCD %in% c(
+    201, 202, 221, 222, 224, 225, 226, 241, 261, 262,
+    263, 264, 265, 267, 268, 270, 271, 281, 301, 304,
+    305, 321, 341, 342, 361, 365, 371, 722, 911, 912,
+    922, 923, 933, 941, 961
+  ))
+
+# get the unique plot_ids that qualify
+CO_forest_type_plot_id <- CO_COND_forest_type %>%
+  distinct(plot_id) %>%
+  pull(plot_id)
+
+length(CO_forest_type_plot_id)
+
+# filter CO_PLOT_IDs for those plot_ids
+CO_PLOT_forest_type <- CO_PLOT_IDs %>%
+  filter(plot_id %in% CO_forest_type_plot_id)
+
+# filter CO_TREE_IDs for those plot_ids
+CO_TREE_forest_type <- CO_TREE_IDs %>%
+  filter(plot_id %in% CO_forest_type_plot_id)
+
+nrow(CO_PLOT_forest_type)
+n_distinct(CO_TREE_forest_type$plot_id)
+
+CO_TREE_forest_type_species <- CO_TREE_forest_type %>%
+  left_join(
+    REF_SPECIES %>%
+      mutate(species = paste(GENUS, SPECIES, sep = "_")) %>%
+      select(SPCD, species),
+    by = "SPCD"
+  )
+
+sum(is.na(CO_TREE_forest_type_species$species))
+n_distinct(CO_TREE_forest_type_species$species)
+
+
+# species from your new forest-type-only workflow
+CO_forest_type_all_species <- CO_TREE_forest_type_species %>%
+  distinct(species) %>%
+  pull(species)
+
+length(CO_forest_type_all_species)
+
+
+# make sure the species coming out of SEEDLING match TREE
+# filter CO_SEEDLING_IDs for those plot_ids
+CO_SEEDLING_forest_type <- CO_SEEDLING_IDs %>%
+  filter(plot_id %in% CO_forest_type_plot_id)
+
+CO_SEEDLING_forest_type_species <- CO_SEEDLING_forest_type %>%
+  left_join(
+    REF_SPECIES %>%
+      mutate(species = paste(GENUS, SPECIES, sep = "_")) %>%
+      select(SPCD, species),
+    by = "SPCD"
+  )
+
+
+# species list from seedling data (forest-type-only workflow)
+CO_forest_type_all_seedling_species <- CO_SEEDLING_forest_type_species %>%
+  distinct(species) %>%
+  pull(species)
+
+length(CO_forest_type_all_species)
+length(CO_forest_type_all_seedling_species)
+
+
+# species found in both tree and seedling data
+intersect(CO_forest_type_all_species, CO_forest_type_all_seedling_species)
+
+# species found only in tree data (mature trees, no seedlings recorded)
+setdiff(CO_forest_type_all_species, CO_forest_type_all_seedling_species)
+
+# species found only in seedling data (recruiting, but no mature trees recorded)
+setdiff(CO_forest_type_all_seedling_species, CO_forest_type_all_species)
+
+
+# create a shared species list
+CO_forest_type_all_species
+CO_forest_type_all_seedling_species
+
+CO_species <- data.frame(
+  species = unique(c(
+    CO_forest_type_all_species,
+    CO_forest_type_all_seedling_species
+  ))
+)
+```
+## dominance 
+
+```{r}
+
+CO_tree_count <- CO_TREE_forest_type_species %>%
+  group_by(plot_id) %>%
+  summarise(total_trees_in_plot = n(), .groups = "drop")
+
+CO_tree_species_dominance <- CO_TREE_forest_type_species %>%
+  group_by(plot_id, species) %>%
+  summarise(species_count = n(), .groups = "drop") %>%
+  left_join(CO_tree_count, by = "plot_id") %>%
+  mutate(relative_abundance = species_count / total_trees_in_plot)
+
+CO_tree_species_summary <- CO_tree_species_dominance %>%
+  group_by(species) %>%
+  summarise(
+    n_plots_present  = n_distinct(plot_id),
+    avg_dominance    = mean(relative_abundance),
+    median_dominance = median(relative_abundance),
+    min_dominance    = min(relative_abundance),
+    max_dominance    = max(relative_abundance),
+    .groups = "drop"
+  ) %>%
+  mutate(frequency = n_plots_present / n_distinct(CO_TREE_forest_type_species$plot_id)) %>%
+  arrange(desc(frequency))
+
+CO_tree_species_summary
+
+
+# calculate dominance and commonness for seedling species too 
+
+CO_seedling_count <- CO_SEEDLING_forest_type_species %>%
+  group_by(plot_id) %>%
+  summarise(
+    total_seedlings_in_plot = sum(TREECOUNT, na.rm = TRUE),
+    .groups = "drop"
+  )
+
+CO_seedling_species_dominance <- CO_SEEDLING_forest_type_species %>%
+  group_by(plot_id, species) %>%
+  summarise(species_count = sum(TREECOUNT, na.rm = TRUE), .groups = "drop") %>%
+  left_join(CO_seedling_count, by = "plot_id") %>%
+  filter(total_seedlings_in_plot > 0) %>%
+  mutate(relative_abundance = species_count / total_seedlings_in_plot)
+
+CO_seedling_species_summary <- CO_seedling_species_dominance %>%
+  group_by(species) %>%
+  summarise(
+    n_plots_present  = n_distinct(plot_id),
+    avg_dominance    = mean(relative_abundance),
+    median_dominance = median(relative_abundance),
+    min_dominance    = min(relative_abundance),
+    max_dominance    = max(relative_abundance),
+    .groups = "drop"
+  ) %>%
+  mutate(
+    frequency = n_plots_present / n_distinct(CO_seedling_species_dominance$plot_id)
+  ) %>%
+  arrange(desc(frequency))
+
+CO_seedling_species_summary
+
+```
+
+
+# WY
+## whole plot network
+```{r}
+
+WY_COND_IDs <- WY_COND %>%
+  dplyr::mutate(
+    plot_id = paste(STATECD, UNITCD, COUNTYCD, PLOT, sep = "_")
+  )
+
+WY_PLOT_IDs <- WY_PLOT %>%
+  dplyr::mutate(
+    plot_id = paste(STATECD, UNITCD, COUNTYCD, PLOT, sep = "_")
+  )
+
+WY_TREE_IDs <- WY_TREE %>%
+  dplyr::mutate(
+    plot_id = paste(STATECD, UNITCD, COUNTYCD, PLOT, sep = "_")
+  )
+
+WY_SEEDLING_IDs <- WY_SEEDLING %>%
+  dplyr::mutate(
+    plot_id = paste(STATECD, UNITCD, COUNTYCD, PLOT, sep = "_")
+  )
+
+WY_COND_forest_type <- WY_COND_IDs %>%
+  filter(FORTYPCD %in% c(
+    201, 202, 221, 222, 224, 225, 226, 241, 261, 262,
+    263, 264, 265, 267, 268, 270, 271, 281, 301, 304,
+    305, 321, 341, 342, 361, 365, 371, 722, 911, 912,
+    922, 923, 933, 941, 961
+  ))
+
+WY_forest_type_plot_id <- WY_COND_forest_type %>%
+  distinct(plot_id) %>%
+  pull(plot_id)
+
+length(WY_forest_type_plot_id)
+
+WY_PLOT_forest_type <- WY_PLOT_IDs %>%
+  filter(plot_id %in% WY_forest_type_plot_id)
+
+WY_TREE_forest_type <- WY_TREE_IDs %>%
+  filter(plot_id %in% WY_forest_type_plot_id)
+
+nrow(WY_PLOT_forest_type)
+n_distinct(WY_TREE_forest_type$plot_id)
+
+WY_TREE_forest_type_species <- WY_TREE_forest_type %>%
+  left_join(
+    REF_SPECIES %>%
+      mutate(species = paste(GENUS, SPECIES, sep = "_")) %>%
+      select(SPCD, species),
+    by = "SPCD"
+  )
+
+sum(is.na(WY_TREE_forest_type_species$species))
+n_distinct(WY_TREE_forest_type_species$species)
+
+WY_forest_type_all_species <- WY_TREE_forest_type_species %>%
+  distinct(species) %>%
+  pull(species)
+
+
+WY_SEEDLING_forest_type <- WY_SEEDLING_IDs %>%
+  filter(plot_id %in% WY_forest_type_plot_id)
+
+WY_SEEDLING_forest_type_species <- WY_SEEDLING_forest_type %>%
+  left_join(
+    REF_SPECIES %>%
+      mutate(species = paste(GENUS, SPECIES, sep = "_")) %>%
+      select(SPCD, species),
+    by = "SPCD"
+  )
+
+WY_forest_type_all_seedling_species <- WY_SEEDLING_forest_type_species %>%
+  distinct(species) %>%
+  pull(species)
+
+length(WY_forest_type_all_species)
+length(WY_forest_type_all_seedling_species)
+
+intersect(WY_forest_type_all_species, WY_forest_type_all_seedling_species)
+
+setdiff(WY_forest_type_all_species, WY_forest_type_all_seedling_species)
+
+setdiff(WY_forest_type_all_seedling_species, WY_forest_type_all_species)
+
+WY_species <- data.frame(
+  species = unique(c(
+    WY_forest_type_all_species,
+    WY_forest_type_all_seedling_species
+  ))
+)
+```
+
+## dominance  
+```{r}
+
+WY_tree_count <- WY_TREE_forest_type_species %>%
+  group_by(plot_id) %>%
+  summarise(total_trees_in_plot = n(), .groups = "drop")
+
+WY_tree_species_dominance <- WY_TREE_forest_type_species %>%
+  group_by(plot_id, species) %>%
+  summarise(species_count = n(), .groups = "drop") %>%
+  left_join(WY_tree_count, by = "plot_id") %>%
+  mutate(relative_abundance = species_count / total_trees_in_plot)
+
+WY_tree_species_summary <- WY_tree_species_dominance %>%
+  group_by(species) %>%
+  summarise(
+    n_plots_present = n_distinct(plot_id),
+    avg_dominance = mean(relative_abundance),
+    median_dominance = median(relative_abundance),
+    min_dominance = min(relative_abundance),
+    max_dominance = max(relative_abundance),
+    .groups = "drop"
+  ) %>%
+  mutate(frequency = n_plots_present / n_distinct(WY_TREE_forest_type_species$plot_id)) %>%
+  arrange(desc(frequency))
+
+
+WY_seedling_count <- WY_SEEDLING_forest_type_species %>%
+  group_by(plot_id) %>%
+  summarise(
+    total_seedlings_in_plot = sum(TREECOUNT, na.rm = TRUE),
+    .groups = "drop"
+  )
+
+WY_seedling_species_dominance <- WY_SEEDLING_forest_type_species %>%
+  group_by(plot_id, species) %>%
+  summarise(species_count = sum(TREECOUNT, na.rm = TRUE), .groups = "drop") %>%
+  left_join(WY_seedling_count, by = "plot_id") %>%
+  filter(total_seedlings_in_plot > 0) %>%
+  mutate(relative_abundance = species_count / total_seedlings_in_plot)
+
+WY_seedling_species_summary <- WY_seedling_species_dominance %>%
+  group_by(species) %>%
+  summarise(
+    n_plots_present = n_distinct(plot_id),
+    avg_dominance = mean(relative_abundance),
+    median_dominance = median(relative_abundance),
+    min_dominance = min(relative_abundance),
+    max_dominance = max(relative_abundance),
+    .groups = "drop"
+  ) %>%
+  mutate(
+    frequency = n_plots_present / n_distinct(WY_seedling_species_dominance$plot_id)
+  ) %>%
+  arrange(desc(frequency))
+
+```
+
+#AZ
+## whole plot network
+```{r}
+
+# filter CA_COND_IDs for forest types only, no disturbance filtering
+ID_COND_forest_type <- ID_COND_IDs %>%
+  filter(FORTYPCD %in% c(201, 202, 221, 222, 224, 225, 226, 241, 261, 262, 263, 264, 265, 267, 268, 270, 271, 281, 301, 304, 305, 321, 341, 342, 361, 365, 371, 722, 911, 912, 922, 923, 933, 941, 961))
+         
+#(371, 201, 221, 222, 224, 225, 261, 922))
+
+# get the unique plot_ids that qualify
+ID_forest_type_plot_id <- ID_COND_forest_type %>%
+  distinct(plot_id) %>%
+  pull(plot_id)
+
+length(ID_forest_type_plot_id)
+
+# filter CA_PLOT_IDs for those plot_ids
+ID_PLOT_forest_type <- ID_PLOT_IDs %>%
+  filter(plot_id %in% ID_forest_type_plot_id)
+
+# filter CA_TREE_IDs for those plot_ids
+ID_TREE_forest_type <- ID_TREE_IDs %>%
+  filter(plot_id %in% ID_forest_type_plot_id)
+
+nrow(ID_PLOT_forest_type)
+n_distinct(ID_TREE_forest_type$plot_id)
+
+ID_TREE_forest_type_species <- ID_TREE_forest_type %>%
+  left_join(
+    REF_SPECIES %>%
+      mutate(species = paste(GENUS, SPECIES, sep = "_")) %>%
+      select(SPCD, species),
+    by = "SPCD"
+  )
+sum(is.na(ID_TREE_forest_type_species$species))
+n_distinct(ID_TREE_forest_type_species$species)
+
+# how different are the species from this workflow and the previous control plot filtering by climate?
+
+
+# species from your new forest-type-only workflow
+ID_forest_type_all_species <- ID_TREE_forest_type_species %>%
+  distinct(species) %>%
+  pull(species)
+
+# species found in both workflows
+intersect(ID_forest_type_all_species, CA_OR_WA_forest_type_species_overlap)
+
+# species found only in ID
+setdiff(ID_forest_type_all_species, CA_OR_WA_forest_type_species_overlap)
+
+# 4 species found in ID that are not in CA, OR, WA
+
+# make sure the species coming out of SEEDLING match TREE
+# filter CA_SEEDLING_IDs for those plot_ids
+OR_SEEDLING_forest_type <- OR_SEEDLING_IDs %>%
+  filter(plot_id %in% OR_forest_type_plot_id)
+
+OR_SEEDLING_forest_type_species <- OR_SEEDLING_forest_type %>%
+  left_join(
+    REF_SPECIES %>%
+      mutate(species = paste(GENUS, SPECIES, sep = "_")) %>%
+      select(SPCD, species),
+    by = "SPCD"
+  )
+
+# species list from seedling data (forest-type-only workflow)
+OR_forest_type_all_seedling_species <- OR_SEEDLING_forest_type_species %>%
+  distinct(species) %>%
+  pull(species)
+
+length(OR_forest_type_all_species)
+length(OR_forest_type_all_seedling_species)
+
+# species found in both tree and seedling data
+intersect(OR_forest_type_all_species, OR_forest_type_all_seedling_species)
+
+# species found only in tree data (mature trees, no seedlings recorded)
+setdiff(OR_forest_type_all_species, OR_forest_type_all_seedling_species)
+
+# species found only in seedling data (recruiting, but no mature trees recorded)
+setdiff(OR_forest_type_all_seedling_species, OR_forest_type_all_species)
+
+# create a shared species list
+OR_forest_type_all_species
+OR_forest_type_all_seedling_species
+
+OR_species <- data.frame(
+  species = unique(c(
+    OR_forest_type_all_species,
+    OR_forest_type_all_seedling_species
+  ))
+)
+```
+
+# NM
+```{r}
+
+
+```
+
+
+# CA, WA, OR species list
+
+```{r}
+
+CA_species_vect <- CA_species$species
+OR_species_vect <- OR_species$species
+WA_species_vect <- WA_species$species
+
+CA_OR_WA_forest_type_species_lists <- list(
+  CA = CA_species_vect,
+  OR = OR_species_vect,
+  WA = WA_species_vect
+)
+CA_OR_WA_forest_type_species_overlap <- Reduce(union, CA_OR_WA_forest_type_species_lists)
+
+length(CA_OR_WA_forest_type_species_overlap)
+
+# species found in ALL THREE states
+CA_OR_WA_forest_type_species <- Reduce(intersect, CA_OR_WA_forest_type_species_lists)
+length(unique(CA_OR_WA_forest_type_species)) 
+# 47 species shared in all 3 states
+
+
+write.csv(CA_OR_WA_forest_type_species_overlap, "updated_species_list_07182026.csv", row.names = FALSE)
+
+# species found in exactly one state only (not shared with either other state)
+length(setdiff(CA_species$species, union(OR_species$species, WA_species$species))) # 21 in CA only
+length(setdiff(OR_species$species, union(CA_species$species, WA_species$species))) # 11 in OR only
+length(setdiff(WA_species$species, union(CA_species$species, OR_species$species))) # 5 in WA only
+
+# Shared by CA and OR, but NOT WA
+setdiff(intersect(CA_species$species, OR_species$species), WA_species$species)
+# 15 species
+
+# Shared by CA and WA, but NOT OR
+setdiff(intersect(CA_species$species, WA_species$species), OR_species$species)
+# 1 species
+
+# Shared by OR and WA, but NOT CA
+setdiff(intersect(OR_species$species, WA_species$species), CA_species$species)
+# 7 species 
+
+# 100 unique species across all states, 40 shared and 37 unique
+
+# Install and load the package if you haven't already
+install.packages("ggvenn")
+library(ggvenn)
+
+# Combine your separate state lists into a single named list
+venn_data <- list(
+  California = CA_species$species,
+  Oregon     = OR_species$species,
+  Washington = WA_species$species
+)
+
+# Plot the diagram
+ggvenn(venn_data, fill_color = c("#3A86FF", "#FF006E", "#FFBE0B"))
+
+
+
+CA_OR_WA_species_lists <- list(
+  CA = CA_all_species,
+  OR = OR_all_species,
+  WA = WA_all_species
+)
+
+# species found in ALL THREE states
+CA_OR_WA_species <- Reduce(intersect, CA_OR_WA_species_lists)
+length(CA_OR_WA_species)
+
+# total unique species across all three states combined
+CA_OR_WA_species_overlap <- Reduce(union, CA_OR_WA_species_lists)
+length(CA_OR_WA_species_overlap)
+
+# species found in exactly one state only (not shared with either other state)
+length(setdiff(CA_all_species, union(OR_all_species, WA_all_species)))
+length(setdiff(OR_all_species, union(CA_all_species, WA_all_species)))
+length(setdiff(WA_all_species, union(CA_all_species, OR_all_species)))
+
+# 78 unique species across all states, 48 shared and 30 unique
+
+
+# are burned plot species much different than control plot species
+# CA
+CA_species_burned  <- CA_TREE_species_filtered %>% filter(condition == "burned")  %>% distinct(species) %>% pull(species)
+CA_species_control <- CA_TREE_species_filtered %>% filter(condition == "control") %>% distinct(species) %>% pull(species)
+
+length(CA_species_burned) # 49 species
+length(CA_species_control) # 60 species
+length(intersect(CA_species_burned, CA_species_control)) # 44 species shared
+length(setdiff(CA_species_burned, CA_species_control)) # 5 in burned only
+length(setdiff(CA_species_control, CA_species_burned)) # 16 in control-only
+
+# OR
+OR_species_burned  <- OR_TREE_species_filtered %>% filter(condition == "burned")  %>% distinct(species) %>% pull(species)
+OR_species_control <- OR_TREE_species_filtered %>% filter(condition == "control") %>% distinct(species) %>% pull(species)
+
+length(OR_species_burned) # 44 species
+length(OR_species_control) # 51 species
+length(intersect(OR_species_burned, OR_species_control)) # 42 species shared
+length(setdiff(OR_species_burned, OR_species_control)) # 2 in burned only
+length(setdiff(OR_species_control, OR_species_burned)) # 9 in control only
+
+# WA
+WA_species_burned  <- WA_TREE_species_filtered %>% filter(condition == "burned")  %>% distinct(species) %>% pull(species)
+WA_species_control <- WA_TREE_species_filtered %>% filter(condition == "control") %>% distinct(species) %>% pull(species)
+
+length(WA_species_burned) # 25 species
+length(WA_species_control) # 31 species
+length(intersect(WA_species_burned, WA_species_control)) # 23 species shared
+length(setdiff(WA_species_burned, WA_species_control)) # 2 in burned only
+length(setdiff(WA_species_control, WA_species_burned)) # 8 in control only 
+```
+
+# merge all states
+```{r}
+
+# merage all states and make a column for which states
+all_states_tree_dominance <- bind_rows(
+  CA_species_dominance %>% mutate(state = "CA"),
+  OR_species_dominance %>% mutate(state = "OR"),
+  WA_species_dominance %>% mutate(state = "WA"),
+  ID_tree_species_dominance %>% mutate(state = "ID")
+)
+
+all_states_tree_species_summary <- all_states_tree_dominance %>%
+  group_by(species) %>%
+  summarise(
+    n_plots_present  = n_distinct(paste(state, plot_id)),  # avoid plot_id collisions across states
+    avg_dominance    = mean(relative_abundance),
+    median_dominance = median(relative_abundance),
+    min_dominance    = min(relative_abundance),
+    max_dominance    = max(relative_abundance),
+    .groups = "drop"
+  ) %>%
+  mutate(
+    frequency = n_plots_present / n_distinct(paste(all_states_tree_dominance$state, all_states_tree_dominance$plot_id))
+  ) %>%
+  arrange(desc(median_dominance))
+
+top_dominant_species_all_states <- all_states_tree_species_summary %>%
+  arrange(desc(median_dominance)) %>%
+  slice_head(n = 20)  # or whatever count you want
+
+top_dominant_species_all_states
+
+# looking at seedling dominance per state and across states
+
+CA_seedling_species_summary %>%
+  filter(median_dominance > 0.01) %>%
+  filter(!species %in% (CA_species_summary %>% filter(median_dominance > 0.01) %>% pull(species)))
+
+OR_seedling_species_summary %>%
+  filter(median_dominance > 0.01) %>%
+  filter(!species %in% (OR_species_summary %>% filter(median_dominance > 0.01) %>% pull(species)))
+
+WA_seedling_species_summary %>%
+  filter(median_dominance > 0.01) %>%
+  filter(!species %in% (WA_species_summary %>% filter(median_dominance > 0.01) %>% pull(species)))
+
+ID_seedling_species_summary %>%
+  filter(median_dominance > 0.01) %>%
+  filter(!species %in% (ID_tree_species_summary %>% filter(median_dominance > 0.01) %>% pull(species)))
+
+
+```
+
