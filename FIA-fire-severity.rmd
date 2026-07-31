@@ -76,6 +76,7 @@ NM_SEEDLING <- read.csv("./data/FIA/NM_SEEDLING.csv")
 
 # Load in reference species names
 REF_SPECIES <- read.csv("./data/FIA/REF_SPECIES.csv")
+REF_FOREST_TYPE <- read.csv("./data/FIA/REF_FOREST_TYPE.csv")
 
 # load terra climate data
 ppt_mean <- rast("data/terra_climate/ppt_30yr_mean.tif")
