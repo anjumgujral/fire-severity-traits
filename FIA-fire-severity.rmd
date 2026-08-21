@@ -87,6 +87,10 @@ pet_mean <- rast("data/terra_climate/pet_30yr_mean.tif")
 tmax_mean <- rast("data/terra_climate/tmax_30yr_mean.tif")
 tmin_mean <- rast("data/terra_climate/tmin_30yr_mean.tif")
 
+climate_stack <- c(ppt_mean, def_mean, vpd_mean, aet_mean, pet_mean, tmax_mean, tmin_mean)
+names(climate_stack) <- c("ppt", "def", "vpd", "aet", "pet", "tmax", "tmin")
+names(climate_stack)
+
 ```
 
 # filter by disturbance and forest type

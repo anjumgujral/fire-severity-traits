@@ -1,0 +1,355 @@
+---
+title: "preliminary-analyses"
+author: "Anjum K. Gujral"
+date: "2026-08-18"
+output: html_document
+---
+
+```{r}
+
+# make sure you've run FIA-fire-severity and control-plot-species before running this script
+
+library(terra)
+library(dplyr)
+
+
+# get coordinates for your filtered plots
+CA_PLOT_coords <- CA_PLOT_forest_type %>%
+  dplyr::select(plot_id, LON, LAT) %>%   # adjust column names if different
+  distinct()
+
+# convert to a terra SpatVector, matching raster CRS
+plot_pts <- vect(CA_PLOT_coords, geom = c("LON", "LAT"), crs = "EPSG:4326")
+
+if (!same.crs(plot_pts, climate_stack)) {
+  plot_pts <- project(plot_pts, crs(climate_stack))
+}
+
+climate_vals <- terra::extract(climate_stack, plot_pts)
+
+# rename columns explicitly (skip the first column, which is "ID")
+colnames(climate_vals) <- c("ID", "ppt", "def", "vpd", "aet", "pet", "tmax", "tmin")
+
+CA_PLOT_climate <- bind_cols(CA_PLOT_coords, climate_vals %>% dplyr::select(-ID))
+
+
+library(ggplot2)
+
+species_climate_full <- CA_TREE_forest_type_species %>%
+  left_join(CA_PLOT_climate, by = "plot_id") %>%
+  left_join(tcrit_species_avg, by = "species") %>%
+  filter(!is.na(Tcrit))
+
+ggplot(species_climate_full, aes(x = vpd, y = Tcrit)) +
+  geom_point(alpha = 0.2, size = 0.8) +
+  labs(x = "VPD", y = "Mean Tcrit (°C)") +
+  theme_minimal()
+
+species_climate_summary <- CA_TREE_forest_type_species %>%
+  left_join(CA_PLOT_climate, by = "plot_id") %>%
+  group_by(species) %>%
+  summarise(
+    mean_vpd = mean(vpd, na.rm = TRUE),
+    sd_vpd = sd(vpd, na.rm = TRUE),
+    .groups = "drop"
+  ) %>%
+  left_join(tcrit_species_avg, by = "species") %>%
+  filter(!is.na(Tcrit))
+
+CA_TREE_forest_type_species %>%
+  left_join(CA_PLOT_climate, by = "plot_id") %>%
+  group_by(species) %>%
+  summarise(
+    mean_tmax = mean(tmax, na.rm = TRUE),
+    .groups = "drop"
+  ) %>%
+  left_join(
+    tcrit_df %>% filter(run != "run7") %>% group_by(species) %>% summarise(Tcrit = mean(Tcrit, na.rm = TRUE)),
+    by = "species"
+  ) %>%
+  filter(!is.na(Tcrit)) %>%
+  ggplot(aes(x = mean_tmax, y = Tcrit)) +
+  geom_point() +
+  geom_text(aes(label = species), vjust = -0.5, size = 2.5, check_overlap = TRUE) +
+  geom_smooth(method = "lm", se = FALSE, color = "grey50") +
+  labs(x = "Mean Tmax", y = "Mean Tcrit (°C)") +
+  theme_minimal()
+
+
+
+library(dplyr)
+library(ggplot2)
+
+# ---- 1. Check plot density across the climate gradient before stratifying ----
+
+ggplot(CA_PLOT_climate, aes(x = tmax)) +
+  geom_histogram(bins = 30) +
+  labs(x = "Tmax", y = "Number of plots") +
+  theme_minimal()
+
+# ---- 2. Bin plots into equal-width climate bins and sample evenly across them ----
+
+n_bins <- 10
+n_per_bin <- 50
+
+set.seed(123)
+
+CA_PLOT_climate_binned <- CA_PLOT_climate %>%
+  filter(!is.na(tmax)) %>%
+  mutate(climate_bin = cut(tmax, breaks = n_bins))
+
+# check how many plots are available per bin before sampling
+CA_PLOT_climate_binned %>% count(climate_bin)
+
+CA_PLOT_climate_stratified <- CA_PLOT_climate_binned %>%
+  group_by(climate_bin) %>%
+  slice_sample(n = n_per_bin, replace = FALSE) %>%
+  ungroup()
+
+# confirm how many plots you actually got per bin (some bins may have fewer than n_per_bin)
+CA_PLOT_climate_stratified %>% count(climate_bin)
+
+# ---- 3. Filter the plot and tree networks down to the stratified plot set ----
+
+stratified_plot_ids <- CA_PLOT_climate_stratified %>% pull(plot_id)
+
+CA_PLOT_forest_type_stratified <- CA_PLOT_forest_type %>%
+  filter(plot_id %in% stratified_plot_ids)
+
+CA_TREE_forest_type_species_stratified <- CA_TREE_forest_type_species %>%
+  filter(plot_id %in% stratified_plot_ids)
+
+# ---- 4. Calculate basal area per tree (stratified set only) ----
+
+CA_TREE_BA <- CA_TREE_forest_type_species_stratified %>%
+  mutate(basal_area = pi * (DIA / 2)^2)  # DIA usually in inches; fine as a relative weight
+
+# ---- 5. Compute community-weighted mean (CWM) Tcrit per plot per year ----
+
+CWM_by_plot_year <- CA_TREE_BA %>%
+  left_join(tcrit_species_avg, by = "species") %>%
+  filter(!is.na(Tcrit), !is.na(basal_area)) %>%
+  group_by(plot_id, INVYR) %>%
+  summarise(
+    cwm_tcrit = sum(basal_area * Tcrit) / sum(basal_area),
+    total_ba = sum(basal_area),
+    n_species = n_distinct(species),
+    .groups = "drop"
+  )
+
+# ---- 6. Visualize CWM Tcrit over time ----
+
+# scatter + linear trend
+ggplot(CWM_by_plot_year, aes(x = INVYR, y = cwm_tcrit)) +
+  geom_point(alpha = 0.3) +
+  geom_smooth(method = "lm") +
+  labs(x = "Inventory Year", y = "Community-weighted mean Tcrit (°C)") +
+  theme_minimal()
+
+# boxplot by year
+ggplot(CWM_by_plot_year, aes(x = factor(INVYR), y = cwm_tcrit)) +
+  geom_boxplot() +
+  labs(x = "Inventory Year", y = "Community-weighted mean Tcrit (°C)") +
+  theme_minimal()
+
+# ---- 7. (Optional) Mixed model accounting for repeated plot measurements ----
+# Only meaningful if plots are resurveyed over multiple INVYR values.
+# Check first:
+CWM_by_plot_year %>% count(plot_id) %>% filter(n > 1) %>% nrow()
+
+library(lme4)
+library(lmerTest)
+cwm_trend <- lmer(cwm_tcrit ~ INVYR + (1 | plot_id), data = CWM_by_plot_year)
+summary(cwm_trend)
+
+CA_TREE_forest_type_species_stratified %>%
+  left_join(CA_PLOT_climate, by = "plot_id") %>%
+  group_by(species) %>%
+  summarise(mean_tmax = mean(tmax, na.rm = TRUE), .groups = "drop") %>%
+  left_join(
+    tcrit_df %>% filter(run != "run7") %>% group_by(species) %>% summarise(Tcrit = mean(Tcrit, na.rm = TRUE)),
+    by = "species"
+  ) %>%
+  filter(!is.na(Tcrit)) %>%
+  ggplot(aes(x = mean_tmax, y = Tcrit)) +
+  geom_point() +
+  geom_text(aes(label = species), vjust = -0.5, size = 2.5, check_overlap = TRUE) +
+  geom_smooth(method = "lm", se = FALSE, color = "grey50") +
+  labs(x = "Mean Tmax (climate-stratified plots)", y = "Mean Tcrit (°C)") +
+theme_minimal() +
+  theme(
+    panel.grid = element_blank(),
+    axis.line = element_line(color = "black")
+  )
+
+
+CA_TREE_forest_type_species_stratified %>%
+  left_join(CA_PLOT_climate, by = "plot_id") %>%
+  group_by(species) %>%
+  summarise(mean_vpd = mean(vpd, na.rm = TRUE), .groups = "drop") %>%
+  left_join(
+    tcrit_df %>% filter(run != "run7") %>% group_by(species) %>% summarise(Tcrit = mean(Tcrit, na.rm = TRUE)),
+    by = "species"
+  ) %>%
+  filter(!is.na(Tcrit)) %>%
+  ggplot(aes(x = mean_vpd, y = Tcrit)) +
+  geom_point() +
+  geom_text(aes(label = species), vjust = -0.5, size = 2.5, check_overlap = TRUE) +
+  geom_smooth(method = "lm", se = FALSE, color = "grey50") +
+  labs(x = "Mean VPD (climate-stratified plots)", y = "Mean Tcrit (°C)") +
+theme_minimal() +
+  theme(
+    panel.grid = element_blank(),
+    axis.line = element_line(color = "black")
+  )
+
+CA_TREE_forest_type_species_stratified %>%
+  left_join(CA_PLOT_climate, by = "plot_id") %>%
+  group_by(species) %>%
+  summarise(mean_def = mean(def, na.rm = TRUE), .groups = "drop") %>%
+  left_join(
+    tcrit_df %>% filter(run != "run7") %>% group_by(species) %>% summarise(Tcrit = mean(Tcrit, na.rm = TRUE)),
+    by = "species"
+  ) %>%
+  filter(!is.na(Tcrit)) %>%
+  ggplot(aes(x = mean_def, y = Tcrit)) +
+  geom_point() +
+  geom_text(aes(label = species), vjust = -0.5, size = 2.5, check_overlap = TRUE) +
+  geom_smooth(method = "lm", se = FALSE, color = "grey50") +
+  labs(x = "Mean CWD (climate-stratified plots)", y = "Mean Tcrit (°C)") +
+theme_minimal() +
+  theme(
+    panel.grid = element_blank(),
+    axis.line = element_line(color = "black")
+  )
+
+CA_TREE_forest_type_species_stratified %>%
+    left_join(CA_PLOT_climate, by = "plot_id") %>%
+    group_by(species) %>%
+    summarise(mean_pet = mean(pet, na.rm = TRUE), .groups = "drop") %>%
+    left_join(
+        tcrit_df %>% filter(run != "run7") %>% group_by(species) %>% summarise(Tcrit = mean(Tcrit, na.rm = TRUE)),
+        by = "species"
+    ) %>%
+    filter(!is.na(Tcrit)) %>%
+    ggplot(aes(x = mean_pet, y = Tcrit)) +
+    geom_point() +
+    geom_text(aes(label = species), vjust = -0.5, size = 2.5, check_overlap = TRUE) +
+    geom_smooth(method = "lm", se = FALSE, color = "grey50") +
+    labs(x = "Mean PET (climate-stratified plots)", y = "Mean Tcrit (°C)") +
+    theme_minimal()
+
+CA_TREE_forest_type_species_stratified %>%
+  left_join(CA_PLOT_climate, by = "plot_id") %>%
+  group_by(species) %>%
+  summarise(mean_aet = mean(aet, na.rm = TRUE), .groups = "drop") %>%
+  left_join(
+    tcrit_df %>% filter(run != "run7") %>% group_by(species) %>% summarise(Tcrit = mean(Tcrit, na.rm = TRUE)),
+    by = "species"
+  ) %>%
+  filter(!is.na(Tcrit)) %>%
+  ggplot(aes(x = mean_aet, y = Tcrit)) +
+  geom_point() +
+  geom_text(aes(label = species), vjust = -0.5, size = 2.5, check_overlap = TRUE) +
+  geom_smooth(method = "lm", se = FALSE, color = "grey50") +
+  labs(x = "Mean AET (climate-stratified plots)", y = "Mean Tcrit (°C)") +
+theme_minimal() +
+  theme(
+    panel.grid = element_blank(),
+    axis.line = element_line(color = "black")
+  )
+
+CA_TREE_forest_type_species_stratified %>%
+  left_join(CA_PLOT_climate, by = "plot_id") %>%
+  group_by(species) %>%
+  summarise(mean_ppt = mean(ppt, na.rm = TRUE), .groups = "drop") %>%
+  left_join(
+    tcrit_df %>% filter(run != "run7") %>% group_by(species) %>% summarise(Tcrit = mean(Tcrit, na.rm = TRUE)),
+    by = "species"
+  ) %>%
+  filter(!is.na(Tcrit)) %>%
+  ggplot(aes(x = mean_ppt, y = Tcrit)) +
+  geom_point() +
+  geom_text(aes(label = species), vjust = -0.5, size = 2.5, check_overlap = TRUE) +
+  geom_smooth(method = "lm", se = FALSE, color = "grey50") +
+  labs(x = "Mean PPT (climate-stratified plots)", y = "Mean Tcrit (°C)") +
+theme_minimal() +
+  theme(
+    panel.grid = element_blank(),
+    axis.line = element_line(color = "black")
+  )
+
+CA_TREE_forest_type_species_stratified %>%
+  mutate(basal_area = pi * (DIA / 2)^2) %>%
+  left_join(
+    tcrit_df %>% filter(run != "run7") %>% group_by(species) %>% summarise(Tcrit = mean(Tcrit, na.rm = TRUE)),
+    by = "species"
+  ) %>%
+  filter(!is.na(Tcrit), !is.na(basal_area)) %>%
+  group_by(plot_id) %>%
+  summarise(
+    cwm_tcrit = sum(basal_area * Tcrit) / sum(basal_area),
+    .groups = "drop"
+  ) %>%
+  left_join(CA_PLOT_climate, by = "plot_id") %>%
+  filter(!is.na(ppt)) %>%
+  ggplot(aes(x = ppt, y = cwm_tcrit)) +
+  geom_point(alpha = 0.4) +
+  geom_smooth(method = "lm", se = FALSE, color = "grey50") +
+  labs(x = "PPT (climate-stratified plots)", y = "Community-weighted mean Tcrit (°C)") +
+  theme_minimal() +
+  theme(
+    panel.grid = element_blank(),
+    axis.line = element_line(color = "black")
+  )
+
+CA_TREE_forest_type_species_stratified %>%
+  mutate(basal_area = pi * (DIA / 2)^2) %>%
+  left_join(
+    tcrit_df %>% filter(run != "run7") %>% group_by(species) %>% summarise(Tcrit = mean(Tcrit, na.rm = TRUE)),
+    by = "species"
+  ) %>%
+  filter(!is.na(Tcrit), !is.na(basal_area)) %>%
+  group_by(plot_id) %>%
+  summarise(
+    cwm_tcrit = sum(basal_area * Tcrit) / sum(basal_area),
+    .groups = "drop"
+  ) %>%
+  left_join(CA_PLOT_climate, by = "plot_id") %>%
+  filter(!is.na(def)) %>%
+  ggplot(aes(x = def, y = cwm_tcrit)) +
+  geom_point(alpha = 0.4) +
+  geom_smooth(method = "lm", se = FALSE, color = "grey50") +
+  labs(x = "CWD (climate-stratified plots)", y = "Community-weighted mean Tcrit (°C)") +
+  theme_minimal() +
+  theme(
+    panel.grid = element_blank(),
+    axis.line = element_line(color = "black")
+  )
+
+
+CA_TREE_forest_type_species_stratified %>%
+  mutate(basal_area = pi * (DIA / 2)^2) %>%
+  left_join(
+    tcrit_df %>% filter(run != "run7") %>% group_by(species) %>% summarise(Tcrit = mean(Tcrit, na.rm = TRUE)),
+    by = "species"
+  ) %>%
+  filter(!is.na(Tcrit), !is.na(basal_area)) %>%
+  group_by(plot_id) %>%
+  summarise(
+    cwm_tcrit = sum(basal_area * Tcrit) / sum(basal_area),
+    .groups = "drop"
+  ) %>%
+  left_join(CA_PLOT_climate, by = "plot_id") %>%
+  filter(!is.na(tmax)) %>%
+  ggplot(aes(x = tmax, y = cwm_tcrit)) +
+  geom_point(alpha = 0.4) +
+  geom_smooth(method = "lm", se = FALSE, color = "grey50") +
+  labs(x = "Tmax (climate-stratified plots)", y = "Community-weighted mean Tcrit (°C)") +
+  theme_minimal() +
+  theme(
+    panel.grid = element_blank(),
+    axis.line = element_line(color = "black")
+  )
+
+```

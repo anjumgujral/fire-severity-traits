@@ -42,6 +42,7 @@ CA_COND_forest_type <- CA_COND_IDs %>%
 341, 342, 361, 365, 371,
 901, 911, 912, 922, 923, 933, 941, 961))
            
+
 #(371, 201, 221, 222, 224, 225, 261, 922))
 
 # get the unique plot_ids that qualify
@@ -66,7 +67,7 @@ CA_TREE_forest_type_species <- CA_TREE_forest_type %>%
   left_join(
     REF_SPECIES %>%
       mutate(species = paste(GENUS, SPECIES, sep = "_")) %>%
-      select(SPCD, species),
+      dplyr::select(SPCD, species),
     by = "SPCD"
   )
 sum(is.na(CA_TREE_forest_type_species$species))
@@ -88,7 +89,7 @@ CA_SEEDLING_forest_type_species <- CA_SEEDLING_forest_type %>%
   left_join(
     REF_SPECIES %>%
       mutate(species = paste(GENUS, SPECIES, sep = "_")) %>%
-      select(SPCD, species),
+      dplyr::select(SPCD, species),
     by = "SPCD"
   )
 

@@ -1,0 +1,73 @@
+---
+title: "tcrit-analyses"
+author: "Anjum K. Gujral"
+date: "2026-08-14"
+output: html_document
+---
+
+```{r}
+# read in csv files from tcrit runs 1-10
+
+run1 <- read.csv("Tcrit/data_processed/20260804_run1_kinetics_results.csv")
+run2 <- read.csv("Tcrit/data_processed/20260804_run2_kinetics_results.csv")
+run3 <- read.csv("Tcrit/data_processed/20260805_run3_kinetics_results.csv")
+run4 <- read.csv("Tcrit/data_processed/20260805_run4_kinetics_results.csv")
+run5 <- read.csv("Tcrit/data_processed/20260807_run5_kinetics_results.csv")
+run6 <- read.csv("Tcrit/data_processed/20260807_run6_kinetics_results.csv")
+run7 <- read.csv("Tcrit/data_processed/20260810_run7_kinetics_results.csv")
+run8 <- read.csv("Tcrit/data_processed/20260810_run8_kinetics_results.csv")
+run9 <- read.csv("Tcrit/data_processed/20260811_run9_kinetics_results.csv")
+run10 <- read.csv("Tcrit/data_processed/20260814_run10_kinetics_results.csv")
+
+# merge all tcrit runs 
+
+run_list <- list(run1, run2, run3, run4, run5, run6, run7, run8, run9, run10)
+
+tcrit_df <- do.call(rbind, lapply(seq_along(run_list), function(i) {
+  df <- run_list[[i]]
+  df$run <- paste0("run", i)
+  df
+}))
+
+tcrit_df <- tcrit_df[!grepl("^NA\\d*$", tcrit_df$LeafID), ]
+
+library(dplyr)
+library(stringr)
+
+tcrit_df <- tcrit_df %>%
+  mutate(species = str_remove(LeafID, "_\\d+$"))
+
+tcrit_species_avg <- tcrit_df %>%
+  group_by(species) %>%
+  summarise(mean_tcrit = mean(Tcrit, na.rm = TRUE), n = n())
+
+tcrit_species_avg <- tcrit_df %>%
+  group_by(species) %>%
+  summarise(across(where(is.numeric), mean, na.rm = TRUE), n = n())
+
+(unique(tcrit_df$species))
+
+species_fixes <- c(
+  "Notholithocarpus_densiflorus" = "Lithocarpus_densiflorus",
+  "Quercus_wizleni"               = "Quercus_wislizeni",
+  "Pinus_jefferyi"                = "Pinus_jeffreyi",
+  "Sequoiadendron_gigantium"      = "Sequoiadendron_giganteum",
+  "Pinus_couteri"                 = "Pinus_coulteri",
+  "Betula_papyifera"              = "Betula_papyrifera",
+  "Platanus_racesmosa"            = "Platanus_racemosa",
+  "Abies_amabiis"                 = "Abies_amabilis",
+  "Aesculus_californicus"         = "Aesculus_californica",
+  "Quercus_engelmanii"            = "Quercus_engelmannii"
+)
+
+tcrit_df$species <- ifelse(tcrit_df$species %in% names(species_fixes),
+                            species_fixes[tcrit_df$species],
+                            tcrit_df$species)
+
+ggplot(tcrit_df %>% filter(run != "run7"), aes(x = reorder(species, Tcrit, median), y = Tcrit)) +
+  geom_boxplot() +
+  coord_flip() +
+  labs(x = "Species", y = "Tcrit (°C)") +
+  theme_minimal()
+
+```

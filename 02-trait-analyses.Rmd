@@ -5,14 +5,16 @@ date: '2025-11-16'
 output: html_document
 ---
 
-#trait data prep
+#load packages
 ```{r}
 
 library(dplyr)
 library(stringr)
 library(tidyr)
 library(ggplot2)
-
+```
+#TRY
+```{r}
 # load in TRY data
 TRY_traits <- read.csv("./data/TRY-traits.csv")
 
@@ -75,7 +77,7 @@ filtered_trait_data <- TRY_trait_data1 %>%
 unique(filtered_trait_data$Species[filtered_trait_data$TraitName == "Bark thickness"])
 
 ```
-
+#species names
 ```{r}
 # mfs dont know how to spell so we need to fix some species names
 
@@ -111,21 +113,37 @@ drop
 Tree_Quercus
 
 ```
-
+#XFT
 ```{r}
-# upload and merge P50 data from XFT
-XFT_traits <- read.csv("./data/XFT_Filtered_data.csv")
+# upload full XFT dataset 
+XFT_full <- read.csv("data/XFT_full_database_download.csv")
 
 # keep uniqueID, Genus, Species , Plant.organ, Developmental.stage
 
-
-XFT_filtered_traits <- XFT_traits %>%
-  select(uniqueID, binomial_gnr, Plant.organ, Developmental.stage, P50)
+XFT_filtered_traits <- XFT_full %>%
+  dplyr::select(uniqueID, binomial_gnr, Plant.organ, Developmental.stage, P50)
 
 XFT_filtered_traits$binomial_gnr <- gsub(" ", "_", XFT_filtered_traits$binomial_gnr)
 
 XFT_filtered_traits <- XFT_filtered_traits %>%
-  rename(SpeciesName = binomial_gnr)
+  dplyr::rename(SpeciesName = binomial_gnr)
+
+length(unique(XFT_filtered_traits$SpeciesName))
+
+# lets filter XFT data to include plant organ = stem only
+XFT_filtered_traits <- XFT_filtered_traits %>%
+  filter(Plant.organ == "S")
+
+length(unique(XFT_filtered_traits$SpeciesName))
+
+# save this as a csv for phylogenetic imputation
+write.csv(XFT_filtered_traits, "XFT_P50_stem.csv", row.names = FALSE)
+
+
+# upload and merge P50 data from XFT
+# XFT_traits <- read.csv("./data/XFT_Filtered_data.csv")
+
+
 
 ```
 
@@ -134,7 +152,7 @@ XFT_filtered_traits <- XFT_filtered_traits %>%
 # merge TRY and XFT, with a source column added
 
 TRY_filtered_traits <- filtered_trait_data %>%
-  select(SpeciesName, TraitID, TraitName, DataName, OriglName, OrigValueStr, OrigUnitStr, StdValue, UnitName, ObservationID, ObsDataID, Dataset, Reference)
+  dplyr::select(SpeciesName, TraitID, TraitName, DataName, OriglName, OrigValueStr, OrigUnitStr, StdValue, UnitName, ObservationID, ObsDataID, Dataset, Reference)
 
 
 TRY_filtered_traits$Source <- "TRY"
@@ -142,11 +160,11 @@ XFT_filtered_traits$Source <- "XFT"
 
 # create a new dataframe that is SpeciesName, OriglName, StdValue, UnitName, and Source from TRY_filtered_traits and P50 and Source from XFT_filtered_traits, join columns by SpeciesName
 
-merged_trait_data <- <- TRY_filtered_traits %>%
-  select(SpeciesName, OriglName, StdValue, UnitName, Source) %>%
+merged_trait_data <- TRY_filtered_traits %>%
+  dplyr::select(SpeciesName, OriglName, StdValue, UnitName, Source) %>%
   left_join(
     XFT_filtered_traits %>%
-      select(SpeciesName, P50, Source),
+      dplyr::select(SpeciesName, P50, Source),
     by = "SpeciesName",
     suffix = c("_TRY", "_XFT")
   )

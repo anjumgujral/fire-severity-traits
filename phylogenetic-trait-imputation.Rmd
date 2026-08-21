@@ -1,0 +1,282 @@
+---
+title: "phylogenetic-trait-imputation"
+author: "Anjum K. Gujral"
+date: "2026-08-09"
+output: html_document
+---
+#load data
+```{r}
+# read in species list
+P50 <- read.csv("XFT_P50_stem.csv")
+
+# read in species list
+all_species <- read.csv("all_states_species_list_07_31_2026.csv")
+
+
+```
+
+# data prep
+```{r}
+# filter to our species
+P50_filtered <- P50 %>%
+  filter(SpeciesName %in% all_species$species)
+
+length(unique(P50_filtered$SpeciesName))
+
+# calculate a P50 median
+P50_filtered <- P50_filtered %>%
+  group_by(SpeciesName) %>%
+  mutate(P50_median = median(P50, na.rm = TRUE)) %>%
+  ungroup()
+
+# create new data frame for P50 median for pagels test
+P50_species_median <- P50_filtered %>%
+  group_by(SpeciesName) %>%
+  summarise(P50_median = median(P50, na.rm = TRUE), .groups = "drop")
+
+# cross check species names with WFO (World Flora)
+
+install.packages("WorldFlora")
+library(WorldFlora)
+
+#download 'classification.csv' from https://zenodo.org/records/18007552
+WFO.remember(WFO.file = "data/classification.csv",
+             WFO.data = "WFO.data",
+             WFO.pos = 1)
+
+match_results <- WFO.match(
+  spec.data = all_species,       # your species list dataframe
+  spec.name = "species",         # column name with the species names
+  WFO.data = WFO.data,
+  no.dates = TRUE
+)
+
+best_matches <- WFO.one(match_results)
+
+best_matches_clean <- best_matches %>%
+  dplyr::select(species.ORIG, scientificName, taxonomicStatus, Fuzzy)
+
+all_species <- all_species %>%
+  left_join(best_matches_clean, by = c("species" = "species.ORIG"))
+
+nrow(all_species) == nrow(best_matches)
+
+all_species <- best_matches
+sum(is.na(all_species$scientificName))   # unresolved names
+table(all_species$Fuzzy)                  # exact vs fuzzy matches
+table(all_species$taxonomicStatus)        # accepted vs synonym vs etc.
+
+all_species <- all_species %>%
+  filter(!is.na(scientificName))
+
+fuzzy_check <- all_species %>%
+  filter(Fuzzy == TRUE) %>%
+  dplyr::select(species, scientificName, taxonomicStatus)
+
+View(fuzzy_check)
+
+P50_filtered <- as.data.frame(P50_filtered)
+
+P50_match <- WFO.match(
+  spec.data = P50_filtered,
+  spec.name = "SpeciesName",
+  WFO.data = WFO.data,
+  no.dates = TRUE
+) 
+
+P50_best <- WFO.one(P50_match)
+
+nrow(P50_filtered) == nrow(P50_best)
+sum(is.na(P50_best$scientificName))
+table(P50_best$Fuzzy)
+
+P50_filtered <- P50_best %>%
+  filter(!is.na(scientificName))
+
+
+# recompute species median using standardized names
+P50_species_median <- P50_filtered %>%
+  group_by(scientificName) %>%
+  summarise(P50_median = median(P50, na.rm = TRUE), .groups = "drop")
+
+```
+
+# build phylogeny
+```{r}
+install.packages("devtools")
+devtools::install_github("jinyizju/V.PhyloMaker2")
+library(V.PhyloMaker2)
+
+phylo_input <- all_species %>%
+  distinct(scientificName, genus, family) %>%
+  dplyr::rename(species = scientificName)
+
+nrow(phylo_input)
+length(unique(phylo_input$species))
+
+tree_result <- phylo.maker(
+  sp.list = phylo_input,
+  tree = GBOTB.extended.TPL,   # mega-phylogeny backbone bundled with the package
+  scenarios = "S3"             # scenario 3 — matches the paper's approach
+)
+
+tree <- tree_result$scenario.3
+
+length(tree$tip.label)
+nrow(phylo_input)
+
+missing_species <- setdiff(phylo_input$species, tree$tip.label)
+missing_species
+
+phylo_input <- phylo_input %>%
+  mutate(species_underscore = gsub(" ", "_", species))
+
+missing_species <- setdiff(phylo_input$species_underscore, tree$tip.label)
+length(missing_species)
+missing_species
+
+```
+
+#phylogenetic signal
+```{r}
+install.packages("phytools")
+library(phytools)
+
+P50_species_median <- P50_species_median %>%
+  mutate(species_underscore = gsub(" ", "_", scientificName))
+
+trait_vector <- setNames(P50_species_median$P50_median, P50_species_median$species_underscore)
+
+species_with_data <- intersect(names(trait_vector), tree$tip.label)
+
+tree_pruned <- keep.tip(tree, species_with_data)
+trait_vector_pruned <- trait_vector[species_with_data]
+
+length(tree_pruned$tip.label) == length(trait_vector_pruned)
+
+lambda_result <- phylosig(tree_pruned, trait_vector_pruned, method = "lambda", test = TRUE)
+lambda_result
+
+# keep one tip per genus
+genus_lookup <- phylo_input %>%
+  dplyr::select(species_underscore, genus) %>%
+  distinct()
+
+one_per_genus <- genus_lookup %>%
+  group_by(genus) %>%
+  slice(1) %>%
+  pull(species_underscore)
+
+tree_genus <- keep.tip(tree_pruned, intersect(one_per_genus, tree_pruned$tip.label))
+trait_vector_genus <- trait_vector_pruned[tree_genus$tip.label]
+
+lambda_genus <- phylosig(tree_genus, trait_vector_genus, method = "lambda", test = TRUE)
+lambda_genus
+```
+
+# phylogenetic eigenvector maps
+```{r}
+install.packages("MPSEM")
+library(MPSEM)
+
+tree_graph <- Phylo2DirectedGraph(tree_pruned)
+
+pem_result <- PEM.build(tree_graph)
+
+pem_scores <- as.data.frame(pem_result$u)
+pem_scores$species_underscore <- rownames(pem_scores)
+
+P50_with_pem <- P50_filtered %>%
+  mutate(species_underscore = gsub(" ", "_", scientificName)) %>%
+  left_join(pem_scores, by = "species_underscore")
+
+pem_cols <- grep("^V_", colnames(P50_with_pem), value = TRUE)
+
+correlations <- sapply(pem_cols, function(col) {
+  cor(P50_with_pem[[col]], P50_with_pem$P50, method = "spearman", use = "complete.obs")
+})
+
+top_pem <- names(sort(abs(correlations), decreasing = TRUE))[1:50]
+
+model_data <- P50_with_pem %>%
+  dplyr::select(P50, all_of(top_pem))
+
+
+```
+
+# random forest models
+```{r}
+install.packages("h2o")
+library(h2o)
+h2o.init()
+
+set.seed(123)  # for reproducibility
+
+unique_species <- unique(P50_with_pem$species_underscore)
+n <- length(unique_species)
+
+shuffled <- sample(unique_species)
+train_sp <- shuffled[1:floor(0.70 * n)]
+valid_sp <- shuffled[(floor(0.70 * n) + 1):floor(0.85 * n)]
+test_sp  <- shuffled[(floor(0.85 * n) + 1):n]
+
+train_data <- P50_with_pem %>% dplyr::filter(species_underscore %in% train_sp) %>% dplyr::select(P50, all_of(top_pem))
+valid_data <- P50_with_pem %>% dplyr::filter(species_underscore %in% valid_sp) %>% dplyr::select(P50, all_of(top_pem))
+test_data  <- P50_with_pem %>% dplyr::filter(species_underscore %in% test_sp)  %>% dplyr::select(P50, all_of(top_pem))
+
+train_h2o <- as.h2o(train_data)
+valid_h2o <- as.h2o(valid_data)
+test_h2o  <- as.h2o(test_data)
+
+rf_model <- h2o.randomForest(
+  x = top_pem,
+  y = "P50",
+  training_frame = train_h2o,
+  validation_frame = valid_h2o,
+  ntrees = 300,
+  max_depth = 50,
+  nfolds = 8,
+  stopping_metric = "MSE",
+  seed = 123
+)
+
+
+perf <- h2o.performance(rf_model, newdata = test_h2o)
+perf
+
+predictions <- as.data.frame(h2o.predict(rf_model, test_h2o))
+actual <- test_data$P50
+predicted <- predictions$predict
+
+mae <- mean(abs(actual - predicted))
+r_squared <- cor(actual, predicted)^2
+percent_bias <- 100 * sum(predicted - actual) / sum(actual)
+
+mae
+r_squared
+percent_bias
+
+full_data_h2o <- as.h2o(P50_with_pem %>% dplyr::select(P50, all_of(top_pem)))
+
+final_model <- h2o.randomForest(
+  x = top_pem,
+  y = "P50",
+  training_frame = full_data_h2o,
+  ntrees = 300,
+  max_depth = 50,
+  nfolds = 8,
+  stopping_metric = "MSE",
+  seed = 123
+)
+
+plot(actual, predicted,
+     xlab = "Observed P50", ylab = "Predicted P50")
+abline(0, 1, col = "red")
+
+```
+
+# impute values
+```{r}
+
+
+```
