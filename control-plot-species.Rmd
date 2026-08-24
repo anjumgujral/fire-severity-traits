@@ -238,7 +238,7 @@ OR_TREE_forest_type_species <- OR_TREE_forest_type %>%
   left_join(
     REF_SPECIES %>%
       mutate(species = paste(GENUS, SPECIES, sep = "_")) %>%
-      select(SPCD, species),
+      dplyr::select(SPCD, species),
     by = "SPCD"
   )
 
@@ -261,7 +261,7 @@ OR_SEEDLING_forest_type_species <- OR_SEEDLING_forest_type %>%
   left_join(
     REF_SPECIES %>%
       mutate(species = paste(GENUS, SPECIES, sep = "_")) %>%
-      select(SPCD, species),
+      dplyr::select(SPCD, species),
     by = "SPCD"
   )
 
@@ -414,7 +414,7 @@ WA_TREE_forest_type_species <- WA_TREE_forest_type %>%
   left_join(
     REF_SPECIES %>%
       mutate(species = paste(GENUS, SPECIES, sep = "_")) %>%
-      select(SPCD, species),
+      dplyr::select(SPCD, species),
     by = "SPCD"
   )
 sum(is.na(WA_TREE_forest_type_species$species))
@@ -436,7 +436,7 @@ WA_SEEDLING_forest_type_species <- WA_SEEDLING_forest_type %>%
   left_join(
     REF_SPECIES %>%
       mutate(species = paste(GENUS, SPECIES, sep = "_")) %>%
-      select(SPCD, species),
+      dplyr::select(SPCD, species),
     by = "SPCD"
   )
 
@@ -701,7 +701,7 @@ ID_TREE_forest_type_species <- ID_TREE_forest_type %>%
   left_join(
     REF_SPECIES %>%
       mutate(species = paste(GENUS, SPECIES, sep = "_")) %>%
-      select(SPCD, species),
+      dplyr::select(SPCD, species),
     by = "SPCD"
   )
 sum(is.na(ID_TREE_forest_type_species$species))
@@ -724,7 +724,7 @@ ID_SEEDLING_forest_type_species <- ID_SEEDLING_forest_type %>%
   left_join(
     REF_SPECIES %>%
       mutate(species = paste(GENUS, SPECIES, sep = "_")) %>%
-      select(SPCD, species),
+      dplyr::select(SPCD, species),
     by = "SPCD"
   )
 
@@ -875,7 +875,7 @@ MT_TREE_forest_type_species <- MT_TREE_forest_type %>%
   left_join(
     REF_SPECIES %>%
       mutate(species = paste(GENUS, SPECIES, sep = "_")) %>%
-      select(SPCD, species),
+      dplyr::select(SPCD, species),
     by = "SPCD"
   )
 sum(is.na(MT_TREE_forest_type_species$species))
@@ -897,7 +897,7 @@ MT_SEEDLING_forest_type_species <- MT_SEEDLING_forest_type %>%
   left_join(
     REF_SPECIES %>%
       mutate(species = paste(GENUS, SPECIES, sep = "_")) %>%
-      select(SPCD, species),
+      dplyr::select(SPCD, species),
     by = "SPCD"
   )
 
@@ -1055,7 +1055,7 @@ NV_TREE_forest_type_species <- NV_TREE_forest_type %>%
   left_join(
     REF_SPECIES %>%
       mutate(species = paste(GENUS, SPECIES, sep = "_")) %>%
-      select(SPCD, species),
+      dplyr::select(SPCD, species),
     by = "SPCD"
   )
 
@@ -1080,7 +1080,7 @@ NV_SEEDLING_forest_type_species <- NV_SEEDLING_forest_type %>%
   left_join(
     REF_SPECIES %>%
       mutate(species = paste(GENUS, SPECIES, sep = "_")) %>%
-      select(SPCD, species),
+      dplyr::select(SPCD, species),
     by = "SPCD"
   )
 
@@ -1240,7 +1240,7 @@ UT_TREE_forest_type_species <- UT_TREE_forest_type %>%
   left_join(
     REF_SPECIES %>%
       mutate(species = paste(GENUS, SPECIES, sep = "_")) %>%
-      select(SPCD, species),
+      dplyr::select(SPCD, species),
     by = "SPCD"
   )
 
@@ -1265,7 +1265,7 @@ UT_SEEDLING_forest_type_species <- UT_SEEDLING_forest_type %>%
   left_join(
     REF_SPECIES %>%
       mutate(species = paste(GENUS, SPECIES, sep = "_")) %>%
-      select(SPCD, species),
+      dplyr::select(SPCD, species),
     by = "SPCD"
   )
 
@@ -1422,7 +1422,7 @@ CO_TREE_forest_type_species <- CO_TREE_forest_type %>%
   left_join(
     REF_SPECIES %>%
       mutate(species = paste(GENUS, SPECIES, sep = "_")) %>%
-      select(SPCD, species),
+      dplyr::select(SPCD, species),
     by = "SPCD"
   )
 
@@ -1447,7 +1447,7 @@ CO_SEEDLING_forest_type_species <- CO_SEEDLING_forest_type %>%
   left_join(
     REF_SPECIES %>%
       mutate(species = paste(GENUS, SPECIES, sep = "_")) %>%
-      select(SPCD, species),
+      dplyr::select(SPCD, species),
     by = "SPCD"
   )
 
@@ -1599,7 +1599,7 @@ WY_TREE_forest_type_species <- WY_TREE_forest_type %>%
   left_join(
     REF_SPECIES %>%
       mutate(species = paste(GENUS, SPECIES, sep = "_")) %>%
-      select(SPCD, species),
+      dplyr::select(SPCD, species),
     by = "SPCD"
   )
 
@@ -1618,7 +1618,7 @@ WY_SEEDLING_forest_type_species <- WY_SEEDLING_forest_type %>%
   left_join(
     REF_SPECIES %>%
       mutate(species = paste(GENUS, SPECIES, sep = "_")) %>%
-      select(SPCD, species),
+      dplyr::select(SPCD, species),
     by = "SPCD"
   )
 
@@ -1752,7 +1752,7 @@ AZ_TREE_forest_type_species <- AZ_TREE_forest_type %>%
   left_join(
     REF_SPECIES %>%
       mutate(species = paste(GENUS, SPECIES, sep = "_")) %>%
-      select(SPCD, species),
+      dplyr::select(SPCD, species),
     by = "SPCD"
   )
 
@@ -1771,7 +1771,7 @@ AZ_SEEDLING_forest_type_species <- AZ_SEEDLING_forest_type %>%
   left_join(
     REF_SPECIES %>%
       mutate(species = paste(GENUS, SPECIES, sep = "_")) %>%
-      select(SPCD, species),
+      dplyr::select(SPCD, species),
     by = "SPCD"
   )
 
@@ -1903,7 +1903,7 @@ NM_TREE_forest_type_species <- NM_TREE_forest_type %>%
   left_join(
     REF_SPECIES %>%
       mutate(species = paste(GENUS, SPECIES, sep = "_")) %>%
-      select(SPCD, species),
+      dplyr::select(SPCD, species),
     by = "SPCD"
   )
 
@@ -1922,7 +1922,7 @@ NM_SEEDLING_forest_type_species <- NM_SEEDLING_forest_type %>%
   left_join(
     REF_SPECIES %>%
       mutate(species = paste(GENUS, SPECIES, sep = "_")) %>%
-      select(SPCD, species),
+      dplyr::select(SPCD, species),
     by = "SPCD"
   )
 
