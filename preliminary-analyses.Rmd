@@ -79,7 +79,7 @@ for (var in climate_vars) {
 
 ```
 
-## trcrit
+## tcrit
 ```{r}
 # create a tree-level dataset where each row = one individual tree, carrying:species name, the plot it was measured in, the plot's climate values, and that species' average Tcrit
 # CA_TREE_forest_type_species is CA_TREE filtered to the plots in CA_PLOT_forest_type
@@ -104,7 +104,7 @@ species_climate_summary <- CA_TREE_forest_type_species %>%
 
 ```
 
-### all
+### CWM
 ```{r}
 tcrit_avg <- tcrit_df %>%
   filter(run != "run7") %>%
@@ -157,13 +157,46 @@ complete_tcrit_plots <- CA_TREE_forest_type_species %>%
 nrow(complete_tcrit_plots)
 n_distinct(paste(complete_tcrit_plots$plot_id, complete_tcrit_plots$INVYR))
 
-CA_TREE_forest_type_species %>%
+species_ba_by_plot <- CA_TREE_forest_type_species %>%
   semi_join(complete_tcrit_plots, by = c("plot_id", "INVYR")) %>%
   mutate(basal_area = pi * (DIA / 2)^2) %>%
-  left_join(species_with_tcrit, by = "species") %>%
   filter(!is.na(basal_area)) %>%
+  group_by(plot_id, INVYR, species) %>%
+  summarise(species_basal_area = sum(basal_area), .groups = "drop") %>%
   group_by(plot_id, INVYR) %>%
-  summarise(cwm_tcrit = sum(basal_area * Tcrit) / sum(basal_area), .groups = "drop") %>%
+  mutate(
+    total_plot_basal_area = sum(species_basal_area),
+    relative_abundance = species_basal_area / total_plot_basal_area  # this is p_{i,k}
+  ) %>%
+  ungroup()
+
+head(species_ba_by_plot)
+# check relative abundances sum to 1 within a plot
+species_ba_by_plot %>%
+  filter(plot_id == "6_1_15_54352", INVYR == 2004) %>%
+  summarise(check_sum = sum(relative_abundance))
+
+cwm_tcrit_by_plot_year <- species_ba_by_plot %>%
+  left_join(species_with_tcrit, by = "species") %>%
+  group_by(plot_id, INVYR) %>%
+  summarise(
+    cwm_tcrit = sum(relative_abundance * Tcrit),  # CWM_{j,k} = sum(p_{i,k} * t_{i,j})
+    .groups = "drop"
+  )
+
+# which species dominate which plots?
+species_ba_by_plot %>%
+  arrange(plot_id, desc(relative_abundance)) %>%
+  group_by(plot_id, INVYR) %>%
+  slice_max(relative_abundance, n = 1)
+
+# species-level contribution to a specific plot's CWM
+species_ba_by_plot %>%
+  filter(plot_id == "6_1_15_54352", INVYR == 2004) %>%
+  left_join(species_with_tcrit, by = "species") %>%
+  mutate(contribution_to_cwm = relative_abundance * Tcrit)
+
+cwm_tcrit_by_plot_year %>%
   left_join(CA_PLOT_climate, by = "plot_id") %>%
   filter(!is.na(ppt)) %>%
   ggplot(aes(x = ppt, y = cwm_tcrit)) +
@@ -173,13 +206,7 @@ CA_TREE_forest_type_species %>%
   theme_bw() +
   theme(panel.grid = element_blank(), panel.border = element_rect(color = "black", fill = NA, linewidth = 0.7))
 
-CA_TREE_forest_type_species %>%
-  semi_join(complete_tcrit_plots, by = c("plot_id", "INVYR")) %>%
-  mutate(basal_area = pi * (DIA / 2)^2) %>%
-  left_join(species_with_tcrit, by = "species") %>%
-  filter(!is.na(basal_area)) %>%
-  group_by(plot_id, INVYR) %>%
-  summarise(cwm_tcrit = sum(basal_area * Tcrit) / sum(basal_area), .groups = "drop") %>%
+cwm_tcrit_by_plot_year %>%
   left_join(CA_PLOT_climate, by = "plot_id") %>%
   filter(!is.na(def)) %>%
   ggplot(aes(x = def, y = cwm_tcrit)) +
@@ -189,13 +216,7 @@ CA_TREE_forest_type_species %>%
   theme_bw() +
   theme(panel.grid = element_blank(), panel.border = element_rect(color = "black", fill = NA, linewidth = 0.7))
 
-CA_TREE_forest_type_species %>%
-  semi_join(complete_tcrit_plots, by = c("plot_id", "INVYR")) %>%
-  mutate(basal_area = pi * (DIA / 2)^2) %>%
-  left_join(species_with_tcrit, by = "species") %>%
-  filter(!is.na(basal_area)) %>%
-  group_by(plot_id, INVYR) %>%
-  summarise(cwm_tcrit = sum(basal_area * Tcrit) / sum(basal_area), .groups = "drop") %>%
+cwm_tcrit_by_plot_year %>%
   left_join(CA_PLOT_climate, by = "plot_id") %>%
   filter(!is.na(vpd)) %>%
   ggplot(aes(x = vpd, y = cwm_tcrit)) +
@@ -205,13 +226,7 @@ CA_TREE_forest_type_species %>%
   theme_bw() +
   theme(panel.grid = element_blank(), panel.border = element_rect(color = "black", fill = NA, linewidth = 0.7))
 
-CA_TREE_forest_type_species %>%
-  semi_join(complete_tcrit_plots, by = c("plot_id", "INVYR")) %>%
-  mutate(basal_area = pi * (DIA / 2)^2) %>%
-  left_join(species_with_tcrit, by = "species") %>%
-  filter(!is.na(basal_area)) %>%
-  group_by(plot_id, INVYR) %>%
-  summarise(cwm_tcrit = sum(basal_area * Tcrit) / sum(basal_area), .groups = "drop") %>%
+cwm_tcrit_by_plot_year %>%
   left_join(CA_PLOT_climate, by = "plot_id") %>%
   filter(!is.na(aet)) %>%
   ggplot(aes(x = aet, y = cwm_tcrit)) +
@@ -221,13 +236,7 @@ CA_TREE_forest_type_species %>%
   theme_bw() +
   theme(panel.grid = element_blank(), panel.border = element_rect(color = "black", fill = NA, linewidth = 0.7))
 
-CA_TREE_forest_type_species %>%
-  semi_join(complete_tcrit_plots, by = c("plot_id", "INVYR")) %>%
-  mutate(basal_area = pi * (DIA / 2)^2) %>%
-  left_join(species_with_tcrit, by = "species") %>%
-  filter(!is.na(basal_area)) %>%
-  group_by(plot_id, INVYR) %>%
-  summarise(cwm_tcrit = sum(basal_area * Tcrit) / sum(basal_area), .groups = "drop") %>%
+cwm_tcrit_by_plot_year %>%
   left_join(CA_PLOT_climate, by = "plot_id") %>%
   filter(!is.na(pet)) %>%
   ggplot(aes(x = pet, y = cwm_tcrit)) +
@@ -237,13 +246,7 @@ CA_TREE_forest_type_species %>%
   theme_bw() +
   theme(panel.grid = element_blank(), panel.border = element_rect(color = "black", fill = NA, linewidth = 0.7))
 
-CA_TREE_forest_type_species %>%
-  semi_join(complete_tcrit_plots, by = c("plot_id", "INVYR")) %>%
-  mutate(basal_area = pi * (DIA / 2)^2) %>%
-  left_join(species_with_tcrit, by = "species") %>%
-  filter(!is.na(basal_area)) %>%
-  group_by(plot_id, INVYR) %>%
-  summarise(cwm_tcrit = sum(basal_area * Tcrit) / sum(basal_area), .groups = "drop") %>%
+cwm_tcrit_by_plot_year %>%
   left_join(CA_PLOT_climate, by = "plot_id") %>%
   filter(!is.na(tmax)) %>%
   ggplot(aes(x = tmax, y = cwm_tcrit)) +
@@ -253,13 +256,7 @@ CA_TREE_forest_type_species %>%
   theme_bw() +
   theme(panel.grid = element_blank(), panel.border = element_rect(color = "black", fill = NA, linewidth = 0.7))
 
-CA_TREE_forest_type_species %>%
-  semi_join(complete_tcrit_plots, by = c("plot_id", "INVYR")) %>%
-  mutate(basal_area = pi * (DIA / 2)^2) %>%
-  left_join(species_with_tcrit, by = "species") %>%
-  filter(!is.na(basal_area)) %>%
-  group_by(plot_id, INVYR) %>%
-  summarise(cwm_tcrit = sum(basal_area * Tcrit) / sum(basal_area), .groups = "drop") %>%
+cwm_tcrit_by_plot_year %>%
   left_join(CA_PLOT_climate, by = "plot_id") %>%
   filter(!is.na(tmin)) %>%
   ggplot(aes(x = tmin, y = cwm_tcrit)) +
@@ -268,6 +265,9 @@ CA_TREE_forest_type_species %>%
   labs(x = "Tmin (°C) (all plots)", y = "Community-weighted mean Tcrit (°C)") +
   theme_bw() +
   theme(panel.grid = element_blank(), panel.border = element_rect(color = "black", fill = NA, linewidth = 0.7))
+
+
+
 ```
 
 ### INVYR
@@ -299,7 +299,7 @@ ggplot(cwm_tcrit_by_plot_year, aes(x = factor(INVYR), y = cwm_tcrit)) +
 
 
 ## P50 
-### all
+### CWM
 ```{r}
 P50_species_median <- P50_species_median %>%
   mutate(P50 = as.numeric(P50_median))
@@ -344,13 +344,25 @@ complete_p50_plots <- CA_TREE_forest_type_species %>%
 n_distinct(paste(CA_TREE_forest_type_species$plot_id, CA_TREE_forest_type_species$INVYR))
 n_distinct(paste(complete_p50_plots$plot_id, complete_p50_plots$INVYR))
 
-CA_TREE_forest_type_species %>%
+species_p50_by_plot <- CA_TREE_forest_type_species %>%
   semi_join(complete_p50_plots, by = c("plot_id", "INVYR")) %>%
   mutate(basal_area = pi * (DIA / 2)^2) %>%
-  left_join(species_with_p50, by = "species") %>%
   filter(!is.na(basal_area)) %>%
+  group_by(plot_id, INVYR, species) %>%
+  summarise(species_basal_area = sum(basal_area), .groups = "drop") %>%
   group_by(plot_id, INVYR) %>%
-  summarise(cwm_P50 = sum(basal_area * P50_median) / sum(basal_area), .groups = "drop") %>%
+  mutate(
+    total_plot_basal_area = sum(species_basal_area),
+    relative_abundance = species_basal_area / total_plot_basal_area
+  ) %>%
+  ungroup()
+
+cwm_p50_by_plot_year <- species_p50_by_plot %>%
+  left_join(species_with_p50, by = "species") %>%
+  group_by(plot_id, INVYR) %>%
+  summarise(cwm_P50 = sum(relative_abundance * P50_median), .groups = "drop")
+
+cwm_p50_by_plot_year %>%
   left_join(CA_PLOT_climate, by = "plot_id") %>%
   filter(!is.na(ppt)) %>%
   ggplot(aes(x = ppt, y = cwm_P50)) +
@@ -360,13 +372,7 @@ CA_TREE_forest_type_species %>%
   theme_bw() +
   theme(panel.grid = element_blank(), panel.border = element_rect(color = "black", fill = NA, linewidth = 0.7))
 
-CA_TREE_forest_type_species %>%
-  semi_join(complete_p50_plots, by = c("plot_id", "INVYR")) %>%
-  mutate(basal_area = pi * (DIA / 2)^2) %>%
-  left_join(species_with_p50, by = "species") %>%
-  filter(!is.na(basal_area)) %>%
-  group_by(plot_id, INVYR) %>%
-  summarise(cwm_P50 = sum(basal_area * P50_median) / sum(basal_area), .groups = "drop") %>%
+cwm_p50_by_plot_year %>%
   left_join(CA_PLOT_climate, by = "plot_id") %>%
   filter(!is.na(def)) %>%
   ggplot(aes(x = def, y = cwm_P50)) +
@@ -376,13 +382,7 @@ CA_TREE_forest_type_species %>%
   theme_bw() +
   theme(panel.grid = element_blank(), panel.border = element_rect(color = "black", fill = NA, linewidth = 0.7))
 
-CA_TREE_forest_type_species %>%
-  semi_join(complete_p50_plots, by = c("plot_id", "INVYR")) %>%
-  mutate(basal_area = pi * (DIA / 2)^2) %>%
-  left_join(species_with_p50, by = "species") %>%
-  filter(!is.na(basal_area)) %>%
-  group_by(plot_id, INVYR) %>%
-  summarise(cwm_P50 = sum(basal_area * P50_median) / sum(basal_area), .groups = "drop") %>%
+cwm_p50_by_plot_year %>%
   left_join(CA_PLOT_climate, by = "plot_id") %>%
   filter(!is.na(vpd)) %>%
   ggplot(aes(x = vpd, y = cwm_P50)) +
@@ -392,13 +392,7 @@ CA_TREE_forest_type_species %>%
   theme_bw() +
   theme(panel.grid = element_blank(), panel.border = element_rect(color = "black", fill = NA, linewidth = 0.7))
 
-CA_TREE_forest_type_species %>%
-  semi_join(complete_p50_plots, by = c("plot_id", "INVYR")) %>%
-  mutate(basal_area = pi * (DIA / 2)^2) %>%
-  left_join(species_with_p50, by = "species") %>%
-  filter(!is.na(basal_area)) %>%
-  group_by(plot_id, INVYR) %>%
-  summarise(cwm_P50 = sum(basal_area * P50_median) / sum(basal_area), .groups = "drop") %>%
+cwm_p50_by_plot_year %>%
   left_join(CA_PLOT_climate, by = "plot_id") %>%
   filter(!is.na(aet)) %>%
   ggplot(aes(x = aet, y = cwm_P50)) +
@@ -408,13 +402,7 @@ CA_TREE_forest_type_species %>%
   theme_bw() +
   theme(panel.grid = element_blank(), panel.border = element_rect(color = "black", fill = NA, linewidth = 0.7))
 
-CA_TREE_forest_type_species %>%
-  semi_join(complete_p50_plots, by = c("plot_id", "INVYR")) %>%
-  mutate(basal_area = pi * (DIA / 2)^2) %>%
-  left_join(species_with_p50, by = "species") %>%
-  filter(!is.na(basal_area)) %>%
-  group_by(plot_id, INVYR) %>%
-  summarise(cwm_P50 = sum(basal_area * P50_median) / sum(basal_area), .groups = "drop") %>%
+cwm_p50_by_plot_year %>%
   left_join(CA_PLOT_climate, by = "plot_id") %>%
   filter(!is.na(pet)) %>%
   ggplot(aes(x = pet, y = cwm_P50)) +
@@ -424,13 +412,7 @@ CA_TREE_forest_type_species %>%
   theme_bw() +
   theme(panel.grid = element_blank(), panel.border = element_rect(color = "black", fill = NA, linewidth = 0.7))
 
-CA_TREE_forest_type_species %>%
-  semi_join(complete_p50_plots, by = c("plot_id", "INVYR")) %>%
-  mutate(basal_area = pi * (DIA / 2)^2) %>%
-  left_join(species_with_p50, by = "species") %>%
-  filter(!is.na(basal_area)) %>%
-  group_by(plot_id, INVYR) %>%
-  summarise(cwm_P50 = sum(basal_area * P50_median) / sum(basal_area), .groups = "drop") %>%
+cwm_p50_by_plot_year %>%
   left_join(CA_PLOT_climate, by = "plot_id") %>%
   filter(!is.na(tmax)) %>%
   ggplot(aes(x = tmax, y = cwm_P50)) +
@@ -440,13 +422,7 @@ CA_TREE_forest_type_species %>%
   theme_bw() +
   theme(panel.grid = element_blank(), panel.border = element_rect(color = "black", fill = NA, linewidth = 0.7))
 
-CA_TREE_forest_type_species %>%
-  semi_join(complete_p50_plots, by = c("plot_id", "INVYR")) %>%
-  mutate(basal_area = pi * (DIA / 2)^2) %>%
-  left_join(species_with_p50, by = "species") %>%
-  filter(!is.na(basal_area)) %>%
-  group_by(plot_id, INVYR) %>%
-  summarise(cwm_P50 = sum(basal_area * P50_median) / sum(basal_area), .groups = "drop") %>%
+cwm_p50_by_plot_year %>%
   left_join(CA_PLOT_climate, by = "plot_id") %>%
   filter(!is.na(tmin)) %>%
   ggplot(aes(x = tmin, y = cwm_P50)) +
@@ -455,6 +431,7 @@ CA_TREE_forest_type_species %>%
   labs(x = "Tmin (°C) (all plots)", y = "Community-weighted mean P50 (MPa)") +
   theme_bw() +
   theme(panel.grid = element_blank(), panel.border = element_rect(color = "black", fill = NA, linewidth = 0.7))
+
 ```
 
 ###INVYR
@@ -480,5 +457,417 @@ ggplot(cwm_p50_by_plot_year, aes(x = factor(INVYR), y = cwm_P50)) +
   theme_bw() +
   theme(panel.grid = element_blank(), panel.border = element_rect(color = "black", fill = NA, linewidth = 0.7))
 
+```
+
+
+# expand states
+### extract climate
+```{r}
+extract_plot_climate <- function(plot_forest_type_df) {
+  coords <- plot_forest_type_df %>%
+    dplyr::select(plot_id, LON, LAT) %>%
+    distinct()
+  
+  pts <- vect(coords, geom = c("LON", "LAT"), crs = "EPSG:4326")
+  if (!same.crs(pts, climate_stack)) {
+    pts <- project(pts, crs(climate_stack))
+  }
+  
+  vals <- terra::extract(climate_stack, pts)
+  colnames(vals) <- c("ID", "ppt", "def", "vpd", "aet", "pet", "tmax", "tmin")
+  
+  bind_cols(coords, vals %>% dplyr::select(-ID))
+}
+
+OR_PLOT_climate <- extract_plot_climate(OR_PLOT_forest_type)
+WA_PLOT_climate <- extract_plot_climate(WA_PLOT_forest_type)
+ID_PLOT_climate <- extract_plot_climate(ID_PLOT_forest_type)
+MT_PLOT_climate <- extract_plot_climate(MT_PLOT_forest_type)
+CO_PLOT_climate <- extract_plot_climate(CO_PLOT_forest_type)
+WY_PLOT_climate <- extract_plot_climate(WY_PLOT_forest_type)
+AZ_PLOT_climate <- extract_plot_climate(AZ_PLOT_forest_type)
+NM_PLOT_climate <- extract_plot_climate(NM_PLOT_forest_type)
+UT_PLOT_climate <- extract_plot_climate(UT_PLOT_forest_type)
+NV_PLOT_climate <- extract_plot_climate(NV_PLOT_forest_type)
 
 ```
+### CWM
+```{r}
+build_species_ba_by_plot <- function(tree_df, species_trait_df, trait_col) {
+  
+  # which plot x year combos have 100% trait coverage
+  complete_plots <- tree_df %>%
+    distinct(plot_id, INVYR, species) %>%
+    left_join(species_trait_df, by = "species") %>%
+    group_by(plot_id, INVYR) %>%
+    summarise(
+      n_species = n_distinct(species),
+      n_species_with_trait = n_distinct(species[!is.na(.data[[trait_col]])]),
+      complete = n_species == n_species_with_trait,
+      .groups = "drop"
+    ) %>%
+    filter(complete)
+  
+  # species-level basal area and relative abundance, restricted to complete plots
+  species_ba <- tree_df %>%
+    semi_join(complete_plots, by = c("plot_id", "INVYR")) %>%
+    mutate(basal_area = pi * (DIA / 2)^2) %>%
+    filter(!is.na(basal_area)) %>%
+    group_by(plot_id, INVYR, species) %>%
+    summarise(species_basal_area = sum(basal_area), .groups = "drop") %>%
+    group_by(plot_id, INVYR) %>%
+    mutate(
+      total_plot_basal_area = sum(species_basal_area),
+      relative_abundance = species_basal_area / total_plot_basal_area
+    ) %>%
+    ungroup()
+  
+  list(complete_plots = complete_plots, species_ba = species_ba)
+}
+
+compute_cwm <- function(species_ba_df, species_trait_df, trait_col, cwm_name) {
+  species_ba_df %>%
+    left_join(species_trait_df, by = "species") %>%
+    group_by(plot_id, INVYR) %>%
+    summarise(!!cwm_name := sum(relative_abundance * .data[[trait_col]]), .groups = "drop")
+}
+
+```
+
+### Tcrit and P50
+```{r}
+
+states_tree_data <- list(
+  CA = CA_TREE_forest_type_species, OR = OR_TREE_forest_type_species,
+  WA = WA_TREE_forest_type_species, ID = ID_TREE_forest_type_species,
+  MT = MT_TREE_forest_type_species, CO = CO_TREE_forest_type_species,
+  WY = WY_TREE_forest_type_species, AZ = AZ_TREE_forest_type_species,
+  NM = NM_TREE_forest_type_species, UT = UT_TREE_forest_type_species,
+  NV = NV_TREE_forest_type_species
+)
+
+states_climate_data <- list(
+  CA = CA_PLOT_climate, OR = OR_PLOT_climate, WA = WA_PLOT_climate,
+  ID = ID_PLOT_climate, MT = MT_PLOT_climate, CO = CO_PLOT_climate,
+  WY = WY_PLOT_climate, AZ = AZ_PLOT_climate, NM = NM_PLOT_climate,
+  UT = UT_PLOT_climate, NV = NV_PLOT_climate
+)
+
+cwm_tcrit_all_states <- list()
+cwm_p50_all_states <- list()
+
+for (st in names(states_tree_data)) {
+  
+  tree_df <- states_tree_data[[st]]
+  
+  # Tcrit
+  tcrit_result <- build_species_ba_by_plot(tree_df, species_with_tcrit, "Tcrit")
+  cwm_tcrit_all_states[[st]] <- compute_cwm(tcrit_result$species_ba, species_with_tcrit, "Tcrit", "cwm_tcrit") %>%
+    left_join(states_climate_data[[st]], by = "plot_id") %>%
+    mutate(state = st)
+  
+  # P50
+  p50_result <- build_species_ba_by_plot(tree_df, species_with_p50, "P50_median")
+  cwm_p50_all_states[[st]] <- compute_cwm(p50_result$species_ba, species_with_p50, "P50_median", "cwm_P50") %>%
+    left_join(states_climate_data[[st]], by = "plot_id") %>%
+    mutate(state = st)
+}
+
+cwm_tcrit_all_states_df <- bind_rows(cwm_tcrit_all_states)
+cwm_p50_all_states_df <- bind_rows(cwm_p50_all_states)
+
+# check the plot x INVYR combinations that we have trait data for all species
+cwm_tcrit_all_states_df %>% count(state)
+cwm_p50_all_states_df %>% count(state)
+
+# check no plot_id appears under more than one state (should return 0 rows)
+cwm_tcrit_all_states_df %>%
+  distinct(plot_id, state) %>%
+  count(plot_id) %>%
+  filter(n > 1)
+
+# check every state you expect is present
+table(cwm_tcrit_all_states_df$state)
+```
+### by state
+```{r}
+# Tcrit by climate (facet by state)
+cwm_tcrit_all_states_df %>%
+  filter(!is.na(ppt)) %>%
+  ggplot(aes(x = ppt, y = cwm_tcrit)) +
+  geom_point(alpha = 0.3) +
+  geom_smooth(method = "lm") +
+  facet_wrap(~ state, scales = "free") +
+  labs(x = "PPT (mm)", y = "Community-weighted mean Tcrit (°C)") +
+  theme_bw() +
+  theme(panel.grid = element_blank(), panel.border = element_rect(color = "black", fill = NA, linewidth = 0.7))
+
+cwm_tcrit_all_states_df %>%
+  filter(!is.na(def)) %>%
+  ggplot(aes(x = def, y = cwm_tcrit)) +
+  geom_point(alpha = 0.3) +
+  geom_smooth(method = "lm") +
+  facet_wrap(~ state, scales = "free") +
+  labs(x = "CWD (mm)", y = "Community-weighted mean Tcrit (°C)") +
+  theme_bw() +
+  theme(panel.grid = element_blank(), panel.border = element_rect(color = "black", fill = NA, linewidth = 0.7))
+
+cwm_tcrit_all_states_df %>%
+  filter(!is.na(vpd)) %>%
+  ggplot(aes(x = vpd, y = cwm_tcrit)) +
+  geom_point(alpha = 0.3) +
+  geom_smooth(method = "lm") +
+  facet_wrap(~ state, scales = "free") +
+  labs(x = "VPD (kPa)", y = "Community-weighted mean Tcrit (°C)") +
+  theme_bw() +
+  theme(panel.grid = element_blank(), panel.border = element_rect(color = "black", fill = NA, linewidth = 0.7))
+
+cwm_tcrit_all_states_df %>%
+  filter(!is.na(aet)) %>%
+  ggplot(aes(x = aet, y = cwm_tcrit)) +
+  geom_point(alpha = 0.3) +
+  geom_smooth(method = "lm") +
+  facet_wrap(~ state, scales = "free") +
+  labs(x = "AET (mm)", y = "Community-weighted mean Tcrit (°C)") +
+  theme_bw() +
+  theme(panel.grid = element_blank(), panel.border = element_rect(color = "black", fill = NA, linewidth = 0.7))
+
+cwm_tcrit_all_states_df %>%
+  filter(!is.na(pet)) %>%
+  ggplot(aes(x = pet, y = cwm_tcrit)) +
+  geom_point(alpha = 0.3) +
+  geom_smooth(method = "lm") +
+  facet_wrap(~ state, scales = "free") +
+  labs(x = "PET (mm)", y = "Community-weighted mean Tcrit (°C)") +
+  theme_bw() +
+  theme(panel.grid = element_blank(), panel.border = element_rect(color = "black", fill = NA, linewidth = 0.7))
+
+cwm_tcrit_all_states_df %>%
+  filter(!is.na(tmax)) %>%
+  ggplot(aes(x = tmax, y = cwm_tcrit)) +
+  geom_point(alpha = 0.3) +
+  geom_smooth(method = "lm") +
+  facet_wrap(~ state, scales = "free") +
+  labs(x = "Tmax (°C)", y = "Community-weighted mean Tcrit (°C)") +
+  theme_bw() +
+  theme(panel.grid = element_blank(), panel.border = element_rect(color = "black", fill = NA, linewidth = 0.7))
+
+cwm_tcrit_all_states_df %>%
+  filter(!is.na(tmin)) %>%
+  ggplot(aes(x = tmin, y = cwm_tcrit)) +
+  geom_point(alpha = 0.3) +
+  geom_smooth(method = "lm") +
+  facet_wrap(~ state, scales = "free") +
+  labs(x = "Tmin (°C)", y = "Community-weighted mean Tcrit (°C)") +
+  theme_bw() +
+  theme(panel.grid = element_blank(), panel.border = element_rect(color = "black", fill = NA, linewidth = 0.7))
+
+
+# P50 by climate (facet by state)
+cwm_p50_all_states_df %>%
+  filter(!is.na(ppt)) %>%
+  ggplot(aes(x = ppt, y = cwm_P50)) +
+  geom_point(alpha = 0.3) +
+  geom_smooth(method = "lm") +
+  facet_wrap(~ state, scales = "free") +
+  labs(x = "PPT (mm)", y = "Community-weighted mean P50 (MPa)") +
+  theme_bw() +
+  theme(panel.grid = element_blank(), panel.border = element_rect(color = "black", fill = NA, linewidth = 0.7))
+
+cwm_p50_all_states_df %>%
+  filter(!is.na(def)) %>%
+  ggplot(aes(x = def, y = cwm_P50)) +
+  geom_point(alpha = 0.3) +
+  geom_smooth(method = "lm") +
+  facet_wrap(~ state, scales = "free") +
+  labs(x = "CWD (mm)", y = "Community-weighted mean P50 (MPa)") +
+  theme_bw() +
+  theme(panel.grid = element_blank(), panel.border = element_rect(color = "black", fill = NA, linewidth = 0.7))
+
+cwm_p50_all_states_df %>%
+  filter(!is.na(vpd)) %>%
+  ggplot(aes(x = vpd, y = cwm_P50)) +
+  geom_point(alpha = 0.3) +
+  geom_smooth(method = "lm") +
+  facet_wrap(~ state, scales = "free") +
+  labs(x = "VPD (kPa)", y = "Community-weighted mean P50 (MPa)") +
+  theme_bw() +
+  theme(panel.grid = element_blank(), panel.border = element_rect(color = "black", fill = NA, linewidth = 0.7))
+
+cwm_p50_all_states_df %>%
+  filter(!is.na(aet)) %>%
+  ggplot(aes(x = aet, y = cwm_P50)) +
+  geom_point(alpha = 0.3) +
+  geom_smooth(method = "lm") +
+  facet_wrap(~ state, scales = "free") +
+  labs(x = "AET (mm)", y = "Community-weighted mean P50 (MPa)") +
+  theme_bw() +
+  theme(panel.grid = element_blank(), panel.border = element_rect(color = "black", fill = NA, linewidth = 0.7))
+
+cwm_p50_all_states_df %>%
+  filter(!is.na(pet)) %>%
+  ggplot(aes(x = pet, y = cwm_P50)) +
+  geom_point(alpha = 0.3) +
+  geom_smooth(method = "lm") +
+  facet_wrap(~ state, scales = "free") +
+  labs(x = "PET (mm)", y = "Community-weighted mean P50 (MPa)") +
+  theme_bw() +
+  theme(panel.grid = element_blank(), panel.border = element_rect(color = "black", fill = NA, linewidth = 0.7))
+
+cwm_p50_all_states_df %>%
+  filter(!is.na(tmax)) %>%
+  ggplot(aes(x = tmax, y = cwm_P50)) +
+  geom_point(alpha = 0.3) +
+  geom_smooth(method = "lm") +
+  facet_wrap(~ state, scales = "free") +
+  labs(x = "Tmax (°C)", y = "Community-weighted mean P50 (MPa)") +
+  theme_bw() +
+  theme(panel.grid = element_blank(), panel.border = element_rect(color = "black", fill = NA, linewidth = 0.7))
+
+cwm_p50_all_states_df %>%
+  filter(!is.na(tmin)) %>%
+  ggplot(aes(x = tmin, y = cwm_P50)) +
+  geom_point(alpha = 0.3) +
+  geom_smooth(method = "lm") +
+  facet_wrap(~ state, scales = "free") +
+  labs(x = "Tmin (°C)", y = "Community-weighted mean P50 (MPa)") +
+  theme_bw() +
+  theme(panel.grid = element_blank(), panel.border = element_rect(color = "black", fill = NA, linewidth = 0.7))
+
+```
+
+## combined
+```{r}
+# tcrit by climate (pooled across states)
+
+cwm_tcrit_all_states_df %>%
+  filter(!is.na(ppt)) %>%
+  ggplot(aes(x = ppt, y = cwm_tcrit)) +
+  geom_point(alpha = 0.3) +
+  geom_smooth(method = "lm") +
+  labs(x = "PPT (mm)", y = "Community-weighted mean Tcrit (°C)") +
+  theme_bw() +
+  theme(panel.grid = element_blank(), panel.border = element_rect(color = "black", fill = NA, linewidth = 0.7))
+
+cwm_tcrit_all_states_df %>%
+  filter(!is.na(def)) %>%
+  ggplot(aes(x = def, y = cwm_tcrit)) +
+  geom_point(alpha = 0.3) +
+  geom_smooth(method = "lm") +
+  labs(x = "CWD (mm)", y = "Community-weighted mean Tcrit (°C)") +
+  theme_bw() +
+  theme(panel.grid = element_blank(), panel.border = element_rect(color = "black", fill = NA, linewidth = 0.7))
+
+cwm_tcrit_all_states_df %>%
+  filter(!is.na(vpd)) %>%
+  ggplot(aes(x = vpd, y = cwm_tcrit)) +
+  geom_point(alpha = 0.3) +
+  geom_smooth(method = "lm") +
+  labs(x = "VPD (kPa)", y = "Community-weighted mean Tcrit (°C)") +
+  theme_bw() +
+  theme(panel.grid = element_blank(), panel.border = element_rect(color = "black", fill = NA, linewidth = 0.7))
+
+cwm_tcrit_all_states_df %>%
+  filter(!is.na(aet)) %>%
+  ggplot(aes(x = aet, y = cwm_tcrit)) +
+  geom_point(alpha = 0.3) +
+  geom_smooth(method = "lm") +
+  labs(x = "AET (mm)", y = "Community-weighted mean Tcrit (°C)") +
+  theme_bw() +
+  theme(panel.grid = element_blank(), panel.border = element_rect(color = "black", fill = NA, linewidth = 0.7))
+
+cwm_tcrit_all_states_df %>%
+  filter(!is.na(pet)) %>%
+  ggplot(aes(x = pet, y = cwm_tcrit)) +
+  geom_point(alpha = 0.3) +
+  geom_smooth(method = "lm") +
+  labs(x = "PET (mm)", y = "Community-weighted mean Tcrit (°C)") +
+  theme_bw() +
+  theme(panel.grid = element_blank(), panel.border = element_rect(color = "black", fill = NA, linewidth = 0.7))
+
+cwm_tcrit_all_states_df %>%
+  filter(!is.na(tmax)) %>%
+  ggplot(aes(x = tmax, y = cwm_tcrit)) +
+  geom_point(alpha = 0.3) +
+  geom_smooth(method = "lm") +
+  labs(x = "Tmax (°C)", y = "Community-weighted mean Tcrit (°C)") +
+  theme_bw() +
+  theme(panel.grid = element_blank(), panel.border = element_rect(color = "black", fill = NA, linewidth = 0.7))
+
+cwm_tcrit_all_states_df %>%
+  filter(!is.na(tmin)) %>%
+  ggplot(aes(x = tmin, y = cwm_tcrit)) +
+  geom_point(alpha = 0.3) +
+  geom_smooth(method = "lm") +
+  labs(x = "Tmin (°C)", y = "Community-weighted mean Tcrit (°C)") +
+  theme_bw() +
+  theme(panel.grid = element_blank(), panel.border = element_rect(color = "black", fill = NA, linewidth = 0.7))
+
+# P50 by climate (pooled across states)
+
+cwm_p50_all_states_df %>%
+  filter(!is.na(ppt)) %>%
+  ggplot(aes(x = ppt, y = cwm_P50)) +
+  geom_point(alpha = 0.3) +
+  geom_smooth(method = "lm") +
+  labs(x = "PPT (mm)", y = "Community-weighted mean P50 (MPa)") +
+  theme_bw() +
+  theme(panel.grid = element_blank(), panel.border = element_rect(color = "black", fill = NA, linewidth = 0.7))
+
+cwm_p50_all_states_df %>%
+  filter(!is.na(def)) %>%
+  ggplot(aes(x = def, y = cwm_P50)) +
+  geom_point(alpha = 0.3) +
+  geom_smooth(method = "lm") +
+  labs(x = "CWD (mm)", y = "Community-weighted mean P50 (MPa)") +
+  theme_bw() +
+  theme(panel.grid = element_blank(), panel.border = element_rect(color = "black", fill = NA, linewidth = 0.7))
+
+cwm_p50_all_states_df %>%
+  filter(!is.na(vpd)) %>%
+  ggplot(aes(x = vpd, y = cwm_P50)) +
+  geom_point(alpha = 0.3) +
+  geom_smooth(method = "lm") +
+  labs(x = "VPD (kPa)", y = "Community-weighted mean P50 (MPa)") +
+  theme_bw() +
+  theme(panel.grid = element_blank(), panel.border = element_rect(color = "black", fill = NA, linewidth = 0.7))
+
+cwm_p50_all_states_df %>%
+  filter(!is.na(aet)) %>%
+  ggplot(aes(x = aet, y = cwm_P50)) +
+  geom_point(alpha = 0.3) +
+  geom_smooth(method = "lm") +
+  labs(x = "AET (mm)", y = "Community-weighted mean P50 (MPa)") +
+  theme_bw() +
+  theme(panel.grid = element_blank(), panel.border = element_rect(color = "black", fill = NA, linewidth = 0.7))
+
+cwm_p50_all_states_df %>%
+  filter(!is.na(pet)) %>%
+  ggplot(aes(x = pet, y = cwm_P50)) +
+  geom_point(alpha = 0.3) +
+  geom_smooth(method = "lm") +
+  labs(x = "PET (mm)", y = "Community-weighted mean P50 (MPa)") +
+  theme_bw() +
+  theme(panel.grid = element_blank(), panel.border = element_rect(color = "black", fill = NA, linewidth = 0.7))
+
+cwm_p50_all_states_df %>%
+  filter(!is.na(tmax)) %>%
+  ggplot(aes(x = tmax, y = cwm_P50)) +
+  geom_point(alpha = 0.3) +
+  geom_smooth(method = "lm") +
+  labs(x = "Tmax (°C)", y = "Community-weighted mean P50 (MPa)") +
+  theme_bw() +
+  theme(panel.grid = element_blank(), panel.border = element_rect(color = "black", fill = NA, linewidth = 0.7))
+
+cwm_p50_all_states_df %>%
+  filter(!is.na(tmin)) %>%
+  ggplot(aes(x = tmin, y = cwm_P50)) +
+  geom_point(alpha = 0.3) +
+  geom_smooth(method = "lm") +
+  labs(x = "Tmin (°C)", y = "Community-weighted mean P50 (MPa)") +
+  theme_bw() +
+  theme(panel.grid = element_blank(), panel.border = element_rect(color = "black", fill = NA, linewidth = 0.7))
+
+```
+
+
