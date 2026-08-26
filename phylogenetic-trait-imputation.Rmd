@@ -6,6 +6,10 @@ output: html_document
 ---
 #load data
 ```{r}
+
+install.packages("WorldFlora")
+library(WorldFlora)
+
 # read in species list
 P50 <- read.csv("XFT_P50_stem.csv")
 
@@ -35,9 +39,6 @@ P50_species_median <- P50_filtered %>%
   summarise(P50_median = median(P50, na.rm = TRUE), .groups = "drop")
 
 # cross check species names with WFO (World Flora)
-
-install.packages("WorldFlora")
-library(WorldFlora)
 
 #download 'classification.csv' from https://zenodo.org/records/18007552
 WFO.remember(WFO.file = "data/classification.csv",
@@ -99,6 +100,11 @@ P50_species_median <- P50_filtered %>%
   group_by(scientificName) %>%
   summarise(P50_median = median(P50, na.rm = TRUE), .groups = "drop")
 
+save.image()
+load(".RData")
+
+save.image(file = "my_workspace.RData")
+load("my_workspace.RData")
 ```
 
 # build phylogeny
@@ -206,20 +212,53 @@ model_data <- P50_with_pem %>%
 
 # random forest models
 ```{r}
+
+# build Phylogenetic Eigenvector Maps (PEM)
+
+install.packages("MPSEM")
+library(MPSEM)
+
+tree_graph <- Phylo2DirectedGraph(tree_pruned)
+pem_result <- PEM.build(tree_graph)
+
+pem_scores <- as.data.frame(pem_result$u)
+colnames(pem_scores)  # confirm naming - rename if not "V_" prefixed
+# if needed: colnames(pem_scores) <- paste0("V_", seq_len(ncol(pem_scores)))
+pem_scores$species_underscore <- rownames(pem_scores)
+
+P50_with_pem <- P50_filtered %>%
+  mutate(species_underscore = gsub(" ", "_", scientificName)) %>%
+  left_join(pem_scores, by = "species_underscore")
+
+
+# feature selection - correlate PEM columns with trait
+
+pem_cols <- grep("^V_", colnames(P50_with_pem), value = TRUE)
+
+correlations <- sapply(pem_cols, function(col) {
+  cor(P50_with_pem[[col]], P50_with_pem$P50, method = "spearman", use = "complete.obs")
+})
+
+top_pem <- names(sort(abs(correlations), decreasing = TRUE))[1:50]
+top_pem_reduced <- names(sort(abs(correlations), decreasing = TRUE))[1:15]
+
+
+# train/valid/test split by species (avoid leakage)
+
 install.packages("h2o")
 library(h2o)
 h2o.init()
 
-set.seed(123)  # for reproducibility
-
+set.seed(123)
 unique_species <- unique(P50_with_pem$species_underscore)
 n <- length(unique_species)
-
 shuffled <- sample(unique_species)
+
 train_sp <- shuffled[1:floor(0.70 * n)]
 valid_sp <- shuffled[(floor(0.70 * n) + 1):floor(0.85 * n)]
 test_sp  <- shuffled[(floor(0.85 * n) + 1):n]
 
+# train model with FULL PEM set (50 cols) - baseline
 train_data <- P50_with_pem %>% dplyr::filter(species_underscore %in% train_sp) %>% dplyr::select(P50, all_of(top_pem))
 valid_data <- P50_with_pem %>% dplyr::filter(species_underscore %in% valid_sp) %>% dplyr::select(P50, all_of(top_pem))
 test_data  <- P50_with_pem %>% dplyr::filter(species_underscore %in% test_sp)  %>% dplyr::select(P50, all_of(top_pem))
@@ -229,17 +268,11 @@ valid_h2o <- as.h2o(valid_data)
 test_h2o  <- as.h2o(test_data)
 
 rf_model <- h2o.randomForest(
-  x = top_pem,
-  y = "P50",
-  training_frame = train_h2o,
-  validation_frame = valid_h2o,
-  ntrees = 300,
-  max_depth = 50,
-  nfolds = 8,
-  stopping_metric = "MSE",
-  seed = 123
+  x = top_pem, y = "P50",
+  training_frame = train_h2o, validation_frame = valid_h2o,
+  ntrees = 300, max_depth = 50, nfolds = 8,
+  stopping_metric = "MSE", seed = 123
 )
-
 
 perf <- h2o.performance(rf_model, newdata = test_h2o)
 perf
@@ -252,31 +285,179 @@ mae <- mean(abs(actual - predicted))
 r_squared <- cor(actual, predicted)^2
 percent_bias <- 100 * sum(predicted - actual) / sum(actual)
 
-mae
-r_squared
-percent_bias
-
-full_data_h2o <- as.h2o(P50_with_pem %>% dplyr::select(P50, all_of(top_pem)))
-
-final_model <- h2o.randomForest(
-  x = top_pem,
-  y = "P50",
-  training_frame = full_data_h2o,
-  ntrees = 300,
-  max_depth = 50,
-  nfolds = 8,
-  stopping_metric = "MSE",
-  seed = 123
-)
-
-plot(actual, predicted,
-     xlab = "Observed P50", ylab = "Predicted P50")
+plot(actual, predicted, xlab = "Observed P50", ylab = "Predicted P50")
 abline(0, 1, col = "red")
 
+# ============================================================
+# STEP 5: Train model with REDUCED PEM set (15 cols) - retain species labels
+# ============================================================
+train_data <- P50_with_pem %>% dplyr::filter(species_underscore %in% train_sp) %>% dplyr::select(P50, all_of(top_pem_reduced))
+valid_data <- P50_with_pem %>% dplyr::filter(species_underscore %in% valid_sp) %>% dplyr::select(P50, all_of(top_pem_reduced))
+test_data  <- P50_with_pem %>% dplyr::filter(species_underscore %in% test_sp)  %>%
+  dplyr::select(species_underscore, P50, all_of(top_pem_reduced))  # <-- keeps species label
+
+train_h2o <- as.h2o(train_data)
+valid_h2o <- as.h2o(valid_data)
+test_h2o  <- as.h2o(test_data %>% dplyr::select(-species_underscore))  # drop label just for h2o input
+
+rf_model_reduced <- h2o.randomForest(
+  x = top_pem_reduced, y = "P50",
+  training_frame = train_h2o, validation_frame = valid_h2o,
+  ntrees = 300, max_depth = 50, nfolds = 8,
+  stopping_metric = "MSE", seed = 123
+)
+
+perf_reduced <- h2o.performance(rf_model_reduced, newdata = test_h2o)
+perf_reduced
+
+predictions_reduced <- as.data.frame(h2o.predict(rf_model_reduced, test_h2o))
+actual <- test_data$P50
+predicted_reduced <- predictions_reduced$predict
+test_species <- test_data$species_underscore   # <-- for residual/phylo step later
+
+mae_reduced <- mean(abs(actual - predicted_reduced))
+r_squared_reduced <- cor(actual, predicted_reduced)^2
+percent_bias_reduced <- 100 * sum(predicted_reduced - actual) / sum(actual)
+
+plot(actual, predicted_reduced, xlab = "Observed P50", ylab = "Predicted P50")
+abline(0, 1, col = "red")
+
+# ============================================================
+# STEP 6: Compare models, choose winner
+# ============================================================
+cat("Original (50 PEM):  R2 =", r_squared, " Bias% =", percent_bias, " MAE =", mae, "\n")
+cat("Reduced (15 PEM):   R2 =", r_squared_reduced, " Bias% =", percent_bias_reduced, " MAE =", mae_reduced, "\n")
+
+top_pem_final <- top_pem_reduced   # <-- you chose reduced
+
+
+# Residuals + phylogenetic signal check (on test set)
+
+library(phytools)
+
+residual_df <- data.frame(
+  species_underscore = test_species,
+  predicted = predicted_reduced,
+  actual = actual,
+  residual = predicted_reduced - actual
+)
+
+residual_vector <- setNames(residual_df$residual, residual_df$species_underscore)
+species_with_residuals <- intersect(names(residual_vector), tree_pruned$tip.label)
+tree_residuals <- keep.tip(tree_pruned, species_with_residuals)
+residual_vector_pruned <- residual_vector[species_with_residuals]
+
+lambda_residuals <- phylosig(tree_residuals, residual_vector_pruned, method = "lambda", test = TRUE)
+lambda_residuals
+
+# empirical uncertainty bins (simplified SEP alternative)
+
+residual_df <- residual_df %>%
+  mutate(pred_bin = ntile(predicted, 3))
+
+bin_summary <- residual_df %>%
+  group_by(pred_bin) %>%
+  summarise(
+    bin_range = paste(round(min(predicted), 1), "to", round(max(predicted), 1)),
+    residual_sd = sd(residual),
+    residual_mean = mean(residual),
+    n = n()
+  )
+
+bin_summary
+
+
+# train final model on FULL dataset using winning PEM set
+
+full_data_h2o <- as.h2o(P50_with_pem %>% dplyr::select(P50, all_of(top_pem_final)))
+
+final_model <- h2o.randomForest(
+  x = top_pem_final, y = "P50",
+  training_frame = full_data_h2o,
+  ntrees = 300, max_depth = 50, nfolds = 8,
+  stopping_metric = "MSE", seed = 123
+)
 ```
 
 # impute values
 ```{r}
 
+# Identify species missing P50 data
+
+species_with_p50 <- unique(P50_with_pem$species_underscore)
+all_tree_species <- tree$tip.label   # all 133 species on your full tree
+
+missing_p50_species <- setdiff(all_tree_species, species_with_p50)
+length(missing_p50_species)
+
+
+# rebuild PEM using the FULL tree (all species, not just those with data)
+
+tree_graph_full <- Phylo2DirectedGraph(tree)
+pem_result_full <- PEM.build(tree_graph_full)
+
+pem_scores_full <- as.data.frame(pem_result_full$u)
+colnames(pem_scores_full)  # confirm naming again for this new object
+pem_scores_full$species_underscore <- rownames(pem_scores_full)
+
+missing_pem <- pem_scores_full %>%
+  dplyr::filter(species_underscore %in% missing_p50_species) %>%
+  dplyr::select(species_underscore, all_of(top_pem_final))
+
+nrow(missing_pem)  # should match length(missing_p50_species), assuming all made it onto tree
+
+
+missing_h2o <- as.h2o(missing_pem %>% dplyr::select(-species_underscore))
+
+imputed_predictions <- as.data.frame(h2o.predict(final_model, missing_h2o))
+
+imputed_results <- data.frame(
+  species_underscore = missing_pem$species_underscore,
+  P50_imputed = imputed_predictions$predict
+)
+
+# assign each imputed value to the closest bin range from bin_summary,
+# using the same predicted-value cutpoints ntile() created on your test set
+imputed_results <- imputed_results %>%
+  mutate(pred_bin = case_when(
+    P50_imputed <= quantile(residual_df$predicted, 1/3) ~ 1,
+    P50_imputed <= quantile(residual_df$predicted, 2/3) ~ 2,
+    TRUE ~ 3
+  )) %>%
+  left_join(bin_summary %>% dplyr::select(pred_bin, residual_sd), by = "pred_bin") %>%
+  mutate(
+    lower_95 = P50_imputed - 1.96 * residual_sd,
+    upper_95 = P50_imputed + 1.96 * residual_sd
+  )
+
+imputed_results
+
+observed_final <- P50_species_median %>%
+  dplyr::select(scientificName, P50_median) %>%
+  mutate(species_underscore = gsub(" ", "_", scientificName),
+         source = "observed") %>%
+  dplyr::select(species_underscore, P50_value = P50_median, source)
+
+imputed_final <- imputed_results %>%
+  mutate(source = "imputed") %>%
+  dplyr::select(species_underscore, P50_value = P50_imputed, source)
+
+P50_complete <- bind_rows(observed_final, imputed_final)
+
+P50_complete
+
+P50_complete %>%
+  ggplot(aes(x = P50_value, fill = source)) +
+  geom_histogram(alpha = 0.6, position = "identity", bins = 20) +
+  labs(
+    x = "P50 (MPa)",
+    y = "Count",
+    fill = "Data source",
+    title = "Observed vs. Imputed P50 values"
+  ) +
+  theme_minimal()
+
+# the model is predicting nearly the same value for most of the 60 missing species
+# RF's known tendency to regress toward the mean at the extremes 
 
 ```
