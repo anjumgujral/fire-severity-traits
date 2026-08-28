@@ -870,4 +870,326 @@ cwm_p50_all_states_df %>%
 
 ```
 
+#forest type
+```{r}
+# define numeric codes
+FORTYPCD_codes <- c(
+  "185" = "Pinyon / juniper woodland",
+  "182" = "Rocky Mountain juniper",
+  "184" = "Juniper woodland",
+  "201" = "Douglas-fir",
+  "202" = "Port-Orford-cedar",
+  "221" = "Ponderosa pine",
+  "222" = "Incense-cedar",
+  "224" = "Sugar pine",
+  "225" = "Jeffrey pine",
+  "226" = "Coulter pine",
+  "241" = "Western white pine",
+  "261" = "White fir",
+  "262" = "Red fir",
+  "263" = "Noble fir",
+  "264" = "Pacific silver fir",
+  "265" = "Engelmann spruce",
+  "267" = "Grand fir",
+  "268" = "Subalpine fir",
+  "270" = "Mountain hemlock",
+  "271" = "Alaska yellow-cedar",
+  "281" = "Lodgepole pine",
+  "301" = "Western hemlock",
+  "304" = "Western redcedar",
+  "305" = "Sitka spruce",
+  "321" = "Western larch",
+  "341" = "Redwood",
+  "342" = "Giant sequoia",
+  "361" = "Knobcone pine",
+  "365" = "Foxtail pine",
+  "371" = "California mixed conifer",
+  "901" = "Aspen",
+  "911" = "Red alder",
+  "912" = "Bigleaf maple",
+  "922" = "California black oak",
+  "923" = "Oregon white oak",
+  "933" = "Canyon live oak",
+  "941" = "Tanoak",
+  "961" = "Pacific madrone"
+)
 
+CA_FORTYPCD <- CA_COND_forest_type %>%
+  distinct(plot_id, INVYR, FORTYPCD)
+
+CA_FORTYPCD <- CA_FORTYPCD %>%
+  mutate(forest_type = FORTYPCD_codes[as.character(FORTYPCD)])
+
+```
+
+###tcrit
+```{r}
+cwm_tcrit_by_plot_year %>%
+  left_join(CA_PLOT_climate, by = "plot_id") %>%
+  left_join(CA_FORTYPCD, by = "plot_id") %>%
+  filter(!is.na(ppt)) %>%
+  ggplot(aes(x = ppt, y = cwm_tcrit, color = factor(FORTYPCD))) +
+  geom_point(alpha = 0.6) +
+  geom_smooth(method = "lm", aes(group = 1), color = "black") +
+  labs(x = "PPT (mm) (all plots)", y = "Community-weighted mean Tcrit (°C)", color = "Forest Type") +
+  theme_bw() +
+  theme(panel.grid = element_blank(), panel.border = element_rect(color = "black", fill = NA, linewidth = 0.7))
+
+cwm_tcrit_by_plot_year %>%
+  left_join(CA_PLOT_climate, by = "plot_id") %>%
+  left_join(CA_FORTYPCD, by = "plot_id") %>%
+  filter(!is.na(ppt)) %>%
+  ggplot(aes(x = ppt, y = cwm_tcrit, color = forest_type)) +
+  geom_point(alpha = 0.6) +
+  geom_smooth(method = "lm", aes(group = 1), color = "black") +
+  labs(x = "PPT (mm) (all plots)", y = "Community-weighted mean Tcrit (°C)", color = "Forest Type") +
+  theme_bw() +
+  theme(panel.grid = element_blank(), panel.border = element_rect(color = "black", fill = NA, linewidth = 0.7))
+
+forest_type_groupings <- c(
+  # Pinyon-juniper and dry woodlands
+  "185" = "Pinyon-juniper & dry woodlands",
+  "182" = "Pinyon-juniper & dry woodlands",
+  "184" = "Pinyon-juniper & dry woodlands",
+
+  # Dry pine forests
+  "221" = "Dry pine forests",
+  "224" = "Dry pine forests",
+  "225" = "Dry pine forests",
+  "226" = "Dry pine forests",
+  "281" = "Dry pine forests",
+  "361" = "Dry pine forests",
+  "365" = "Dry pine forests",
+
+  # Mixed conifer forests
+  "201" = "Mixed conifer forests",
+  "222" = "Mixed conifer forests",
+  "371" = "Mixed conifer forests",
+  "241" = "Mixed conifer forests",
+
+  # True fir / subalpine forests
+  "261" = "True fir & subalpine forests",
+  "262" = "True fir & subalpine forests",
+  "263" = "True fir & subalpine forests",
+  "264" = "True fir & subalpine forests",
+  "265" = "True fir & subalpine forests",
+  "267" = "True fir & subalpine forests",
+  "268" = "True fir & subalpine forests",
+  "270" = "True fir & subalpine forests",
+  "271" = "True fir & subalpine forests",
+
+  # Pacific Northwest moist conifer forests
+  "202" = "Pacific NW moist conifer forests",
+  "301" = "Pacific NW moist conifer forests",
+  "304" = "Pacific NW moist conifer forests",
+  "305" = "Pacific NW moist conifer forests",
+  "321" = "Pacific NW moist conifer forests",
+
+  # Coastal fire-prone conifer forests
+  "341" = "Coastal fire-prone conifer forests",
+  "342" = "Coastal fire-prone conifer forests",
+
+  # Hardwood / broadleaf forests
+  "901" = "Hardwood & broadleaf forests",
+  "911" = "Hardwood & broadleaf forests",
+  "912" = "Hardwood & broadleaf forests",
+  "922" = "Hardwood & broadleaf forests",
+  "923" = "Hardwood & broadleaf forests",
+  "933" = "Hardwood & broadleaf forests",
+  "941" = "Hardwood & broadleaf forests",
+  "961" = "Hardwood & broadleaf forests"
+)
+
+CA_FORTYPCD <- CA_FORTYPCD %>%
+  mutate(forest_type_groupings = forest_type_groupings[as.character(FORTYPCD)])
+
+# check for unmapped codes
+CA_FORTYPCD %>% filter(is.na(forest_type_groupings)) %>% distinct(FORTYPCD)
+
+cwm_tcrit_by_plot_year %>%
+  left_join(CA_PLOT_climate, by = "plot_id") %>%
+  left_join(CA_FORTYPCD, by = "plot_id") %>%
+  filter(!is.na(ppt)) %>%
+  ggplot(aes(x = ppt, y = cwm_tcrit, color = forest_type_groupings)) +
+  geom_point(alpha = 0.6) +
+  geom_smooth(method = "lm", aes(group = 1), color = "black") +
+  labs(x = "PPT (mm) (all plots)", y = "Community-weighted mean Tcrit (°C)", color = "Forest Type Group") +
+  theme_bw() +
+  theme(panel.grid = element_blank(), panel.border = element_rect(color = "black", fill = NA, linewidth = 0.7))
+
+cwm_tcrit_by_plot_year %>%
+  left_join(CA_PLOT_climate, by = "plot_id") %>%
+  left_join(CA_FORTYPCD, by = "plot_id") %>%
+  filter(!is.na(ppt)) %>%
+  ggplot(aes(x = ppt, y = cwm_tcrit, color = forest_type_groupings)) +
+  geom_point(alpha = 0.6) +
+  geom_smooth(method = "lm", aes(group = 1), color = "black") +
+  scale_color_brewer(palette = "Set1") +
+  labs(x = "PPT (mm) (all plots)", y = "Community-weighted mean Tcrit (°C)", color = "Forest Type Group") +
+  theme_bw() +
+  theme(panel.grid = element_blank(), panel.border = element_rect(color = "black", fill = NA, linewidth = 0.7))
+
+
+cwm_tcrit_by_plot_year %>%
+  left_join(CA_PLOT_climate, by = "plot_id") %>%
+  left_join(CA_FORTYPCD, by = "plot_id") %>%
+  filter(!is.na(def)) %>%
+  ggplot(aes(x = def, y = cwm_tcrit, color = forest_type_groupings)) +
+  geom_point(alpha = 0.6) +
+  geom_smooth(method = "lm", aes(group = 1), color = "black") +
+  scale_color_brewer(palette = "Set1") +
+  labs(x = "CWD (mm) (all plots)", y = "Community-weighted mean Tcrit (°C)", color = "Forest Type Group") +
+  theme_bw() +
+  theme(panel.grid = element_blank(), panel.border = element_rect(color = "black", fill = NA, linewidth = 0.7))
+
+cwm_tcrit_by_plot_year %>%
+  left_join(CA_PLOT_climate, by = "plot_id") %>%
+  left_join(CA_FORTYPCD, by = "plot_id") %>%
+  filter(!is.na(vpd)) %>%
+  ggplot(aes(x = vpd, y = cwm_tcrit, color = forest_type_groupings)) +
+  geom_point(alpha = 0.6) +
+  geom_smooth(method = "lm", aes(group = 1), color = "black") +
+  scale_color_brewer(palette = "Set1") +
+  labs(x = "VPD (kPa) (all plots)", y = "Community-weighted mean Tcrit (°C)", color = "Forest Type Group") +
+  theme_bw() +
+  theme(panel.grid = element_blank(), panel.border = element_rect(color = "black", fill = NA, linewidth = 0.7))
+
+cwm_tcrit_by_plot_year %>%
+  left_join(CA_PLOT_climate, by = "plot_id") %>%
+  left_join(CA_FORTYPCD, by = "plot_id") %>%
+  filter(!is.na(aet)) %>%
+  ggplot(aes(x = aet, y = cwm_tcrit, color = forest_type_groupings)) +
+  geom_point(alpha = 0.6) +
+  geom_smooth(method = "lm", aes(group = 1), color = "black") +
+  scale_color_brewer(palette = "Set1") +
+  labs(x = "AET (mm) (all plots)", y = "Community-weighted mean Tcrit (°C)", color = "Forest Type Group") +
+  theme_bw() +
+  theme(panel.grid = element_blank(), panel.border = element_rect(color = "black", fill = NA, linewidth = 0.7))
+
+cwm_tcrit_by_plot_year %>%
+  left_join(CA_PLOT_climate, by = "plot_id") %>%
+  left_join(CA_FORTYPCD, by = "plot_id") %>%
+  filter(!is.na(pet)) %>%
+  ggplot(aes(x = pet, y = cwm_tcrit, color = forest_type_groupings)) +
+  geom_point(alpha = 0.6) +
+  geom_smooth(method = "lm", aes(group = 1), color = "black") +
+  scale_color_brewer(palette = "Set1") +
+  labs(x = "PET (mm) (all plots)", y = "Community-weighted mean Tcrit (°C)", color = "Forest Type Group") +
+  theme_bw() +
+  theme(panel.grid = element_blank(), panel.border = element_rect(color = "black", fill = NA, linewidth = 0.7))
+
+cwm_tcrit_by_plot_year %>%
+  left_join(CA_PLOT_climate, by = "plot_id") %>%
+  left_join(CA_FORTYPCD, by = "plot_id") %>%
+  filter(!is.na(tmax)) %>%
+  ggplot(aes(x = tmax, y = cwm_tcrit, color = forest_type_groupings)) +
+  geom_point(alpha = 0.6) +
+  geom_smooth(method = "lm", aes(group = 1), color = "black") +
+  scale_color_brewer(palette = "Set1") +
+  labs(x = "Tmax (°C) (all plots)", y = "Community-weighted mean Tcrit (°C)", color = "Forest Type Group") +
+  theme_bw() +
+  theme(panel.grid = element_blank(), panel.border = element_rect(color = "black", fill = NA, linewidth = 0.7))
+
+cwm_tcrit_by_plot_year %>%
+  left_join(CA_PLOT_climate, by = "plot_id") %>%
+  left_join(CA_FORTYPCD, by = "plot_id") %>%
+  filter(!is.na(tmin)) %>%
+  ggplot(aes(x = tmin, y = cwm_tcrit, color = forest_type_groupings)) +
+  geom_point(alpha = 0.6) +
+  geom_smooth(method = "lm", aes(group = 1), color = "black") +
+  scale_color_brewer(palette = "Set1") +
+  labs(x = "Tmin (°C) (all plots)", y = "Community-weighted mean Tcrit (°C)", color = "Forest Type Group") +
+  theme_bw() +
+  theme(panel.grid = element_blank(), panel.border = element_rect(color = "black", fill = NA, linewidth = 0.7))
+
+```
+
+##P50
+
+```{r}
+
+cwm_p50_by_plot_year %>%
+  left_join(CA_PLOT_climate, by = "plot_id") %>%
+  left_join(CA_FORTYPCD, by = "plot_id") %>%
+  filter(!is.na(ppt)) %>%
+  ggplot(aes(x = ppt, y = cwm_P50, color = forest_type_groupings)) +
+  geom_point(alpha = 0.6) +
+  geom_smooth(method = "lm", aes(group = 1), color = "black") +
+  scale_color_brewer(palette = "Set1") +
+  labs(x = "PPT (mm) (all plots)", y = "Community-weighted mean P50 (MPa)", color = "Forest Type Group") +
+  theme_bw() +
+  theme(panel.grid = element_blank(), panel.border = element_rect(color = "black", fill = NA, linewidth = 0.7))
+
+cwm_p50_by_plot_year %>%
+  left_join(CA_PLOT_climate, by = "plot_id") %>%
+  left_join(CA_FORTYPCD, by = "plot_id") %>%
+  filter(!is.na(def)) %>%
+  ggplot(aes(x = def, y = cwm_P50, color = forest_type_groupings)) +
+  geom_point(alpha = 0.6) +
+  geom_smooth(method = "lm", aes(group = 1), color = "black") +
+  scale_color_brewer(palette = "Set1") +
+  labs(x = "CWD (mm) (all plots)", y = "Community-weighted mean P50 (MPa)", color = "Forest Type Group") +
+  theme_bw() +
+  theme(panel.grid = element_blank(), panel.border = element_rect(color = "black", fill = NA, linewidth = 0.7))
+
+cwm_p50_by_plot_year %>%
+  left_join(CA_PLOT_climate, by = "plot_id") %>%
+  left_join(CA_FORTYPCD, by = "plot_id") %>%
+  filter(!is.na(vpd)) %>%
+  ggplot(aes(x = vpd, y = cwm_P50, color = forest_type_groupings)) +
+  geom_point(alpha = 0.6) +
+  geom_smooth(method = "lm", aes(group = 1), color = "black") +
+  scale_color_brewer(palette = "Set1") +
+  labs(x = "VPD (kPa) (all plots)", y = "Community-weighted mean P50 (MPa)", color = "Forest Type Group") +
+  theme_bw() +
+  theme(panel.grid = element_blank(), panel.border = element_rect(color = "black", fill = NA, linewidth = 0.7))
+
+cwm_p50_by_plot_year %>%
+  left_join(CA_PLOT_climate, by = "plot_id") %>%
+  left_join(CA_FORTYPCD, by = "plot_id") %>%
+  filter(!is.na(aet)) %>%
+  ggplot(aes(x = aet, y = cwm_P50, color = forest_type_groupings)) +
+  geom_point(alpha = 0.6) +
+  geom_smooth(method = "lm", aes(group = 1), color = "black") +
+  scale_color_brewer(palette = "Set1") +
+  labs(x = "AET (mm) (all plots)", y = "Community-weighted mean P50 (MPa)", color = "Forest Type Group") +
+  theme_bw() +
+  theme(panel.grid = element_blank(), panel.border = element_rect(color = "black", fill = NA, linewidth = 0.7))
+
+cwm_p50_by_plot_year %>%
+  left_join(CA_PLOT_climate, by = "plot_id") %>%
+  left_join(CA_FORTYPCD, by = "plot_id") %>%
+  filter(!is.na(pet)) %>%
+  ggplot(aes(x = pet, y = cwm_P50, color = forest_type_groupings)) +
+  geom_point(alpha = 0.6) +
+  geom_smooth(method = "lm", aes(group = 1), color = "black") +
+  scale_color_brewer(palette = "Set1") +
+  labs(x = "PET (mm) (all plots)", y = "Community-weighted mean P50 (MPa)", color = "Forest Type Group") +
+  theme_bw() +
+  theme(panel.grid = element_blank(), panel.border = element_rect(color = "black", fill = NA, linewidth = 0.7))
+
+cwm_p50_by_plot_year %>%
+  left_join(CA_PLOT_climate, by = "plot_id") %>%
+  left_join(CA_FORTYPCD, by = "plot_id") %>%
+  filter(!is.na(tmax)) %>%
+  ggplot(aes(x = tmax, y = cwm_P50, color = forest_type_groupings)) +
+  geom_point(alpha = 0.6) +
+  geom_smooth(method = "lm", aes(group = 1), color = "black") +
+  scale_color_brewer(palette = "Set1") +
+  labs(x = "Tmax (°C) (all plots)", y = "Community-weighted mean P50 (MPa)", color = "Forest Type Group") +
+  theme_bw() +
+  theme(panel.grid = element_blank(), panel.border = element_rect(color = "black", fill = NA, linewidth = 0.7))
+
+cwm_p50_by_plot_year %>%
+  left_join(CA_PLOT_climate, by = "plot_id") %>%
+  left_join(CA_FORTYPCD, by = "plot_id") %>%
+  filter(!is.na(tmin)) %>%
+  ggplot(aes(x = tmin, y = cwm_P50, color = forest_type_groupings)) +
+  geom_point(alpha = 0.6) +
+  geom_smooth(method = "lm", aes(group = 1), color = "black") +
+  scale_color_brewer(palette = "Set1") +
+  labs(x = "Tmin (°C) (all plots)", y = "Community-weighted mean P50 (MPa)", color = "Forest Type Group") +
+  theme_bw() +
+  theme(panel.grid = element_blank(), panel.border = element_rect(color = "black", fill = NA, linewidth = 0.7))
+
+```
